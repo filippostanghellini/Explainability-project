@@ -1,87 +1,87 @@
-## Explainable AI Benchmark su CUB200-2011
+## Explainable AI Benchmark on CUB200-2011
 
-## 📂 Struttura 
+## 📂 Structure
 
 ```
 project/
-├── CUB_200_2011/          # Cartella del dataset (da scaricare)
+├── CUB_200_2011/          # dataset
 ├── src/
-│   ├── data_utils.py      # Gestione dataset CUB200 e parsing metadati
-│   ├── model.py           # Definizione architettura (ResNet50)
-│   ├── explainers.py      # Wrapper per libreria Captum (IG, LIME, SHAP...) 
-│   └── train.py           # Loop di training e validazione
-├── exploratory.ipynb      # Notebook per esperimenti preliminari
-└── README.md              
+│   ├── data_utils.py      # CUB200 dataset management and metadata parsing
+│   ├── model.py           # Architecture definition (ResNet50)
+│   ├── explainers.py      # Captum wrappers (IG, LIME, SHAP...)
+│   └── train.py           # Training and validation loop
+├── exploratory.ipynb      # Notebook for preliminary experiments
+└── README.md
 ```
 
 ---
 
-## 🛠 Moduli Implementati
+## 🛠 Implemented Modules
 
-### 1. Modello (`src/model.py`)
+### 1. Model (`src/model.py`)
 
-Utilizza il **Transfer Learning** partendo da una **ResNet50** pre-addestrata su **ImageNet**.
+Uses **Transfer Learning** starting from a **ResNet50** pre-trained on **ImageNet**.
 
-- **Modifica**: l'ultimo layer *Fully Connected* è sostituito per adattarsi alle **200 classi** di uccelli del dataset CUB.
-- **Funzionalità**: supporta il **salvataggio/caricamento dei pesi** e l'**estrazione delle feature**.
+- **Modification**: the final *Fully Connected* layer is replaced to adapt to the **200 bird classes** in the CUB dataset.
+- **Features**: supports **saving/loading weights** and **feature extraction**.
 
 ---
 
-### 2. Dati (`src/data_utils.py`)
+### 2. Data (`src/data_utils.py`)
 
-Classe `CUBDataset` personalizzata che gestisce la complessità dei file di testo del **CUB200**:
+A custom `CUBDataset` class that manages the complexity of the **CUB200** text metadata files:
 
-- Incrocia `images.txt` e `image_class_labels.txt` per associare **immagini e label**.
-- Gestisce le **trasformazioni** (resize, normalizzazione) necessarie per ResNet.
+- Cross-references `images.txt` and `image_class_labels.txt` to associate **images and labels**.
+- Handles the required **transformations** (resize, normalization) for ResNet.
 
-> **Nota**: include una funzione preliminare `get_part_annotations` per leggere le **coordinate delle parti anatomiche** (fondamentale per la fase di valutazione).
+> **Note**: includes a preliminary function `get_part_annotations` to read **anatomical part coordinates** (crucial for the evaluation phase).
 
 ---
 
 ### 3. Explainers (`src/explainers.py`)
 
-Un'architettura a oggetti basata su **Captum** che standardizza l'interfaccia per diversi metodi di spiegazione:
+An object-oriented architecture based on **Captum** that standardizes the interface across different explanation methods:
 
 - **Gradient-based (White-box)**: Integrated Gradients, Saliency (Input Gradients).
 - **Perturbation-based (Black-box)**: LIME, KernelSHAP.
 
-**Output**: ogni explainer restituisce una **heatmap normalizzata**, pronta per la visualizzazione o la valutazione quantitativa.
+**Output**: each explainer returns a **normalized heatmap**, ready for visualization or quantitative evaluation.
 
 ---
 
 ### 4. Training (`src/train.py`)
 
-Pipeline di **fine-tuning** veloce:
+A fast **fine-tuning** pipeline:
 
-- Usa `CrossEntropyLoss` e ottimizzatore **Adam**.
-- Salva automaticamente il **modello con la migliore accuratezza** sul validation set.
+- Uses `CrossEntropyLoss` and the **Adam** optimizer.
+- Automatically saves the **model with the best validation accuracy**.
 
 ---
 
-## 🚀 Come Eseguire
+## 🚀 How to Run
 
-### Prerequisiti
+### Prerequisites
 
 ```bash
 pip install -r requirements.txt
 ```
-Run exploratory notebook to test modules
+
+Run the exploratory notebook to test the modules.
 
 ---
 
-## 📊 Stato del Progetto e Prossimi Passaggi (TODO)
+## 📊 Project Status and Next Steps (TODO)
 
-Al momento il progetto è in grado di:
+At the moment, the project is able to:
 
-- [x] Caricare correttamente il dataset e le label
-- [x] Addestrare il modello con buone performance
-- [x] Generare spiegazioni visive (heatmap) con **4 algoritmi diversi**
+- [x] Correctly load the dataset and labels
+- [x] Train the model with good performance
+- [x] Generate visual explanations (heatmaps) using **4 different algorithms**
 
-### Gap Analysis – Requisiti mancanti per l'esame
+### Gap Analysis – Missing Requirements for the Exam
 
-Il requisito fondamentale del corso è la **valutazione quantitativa della plausibilità**.
+The core course requirement is **quantitative evaluation of plausibility**.
 
-- [ ] **Data Engineering**: aggiornare `CUBDataset` per restituire le **Ground Truth Masks** (maschere binarie create dalle coordinate delle parti anatomiche)
-- [ ] **Metrica**: implementare una funzione di **Intersection over Union (IoU)** o **Energy Fraction** per misurare quanto la heatmap si sovrappone alla maschera delle parti reali
-- [ ] **Benchmark**: eseguire uno script su tutto il test set per ottenere i punteggi finali (es. *"IG ha una plausibilità del 60% vs LIME 45%"*)
-
+- [ ] **Data Engineering**: update `CUBDataset` to return **Ground Truth Masks** (binary masks created from anatomical part coordinates)
+- [ ] **Metric**: implement an **Intersection over Union (IoU)** or **Energy Fraction** metric to measure how much the heatmap overlaps with the true part masks
+- [ ] **Benchmark**: run a script over the entire test set to obtain final scores (e.g., *"IG achieves 60% plausibility vs LIME 45%"*)
