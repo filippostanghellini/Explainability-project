@@ -23,6 +23,7 @@ from captum.attr import (
 )
 from captum.attr._utils.visualization import visualize_image_attr
 from captum._utils.models.linear_model import SkLearnRidge
+from skimage.segmentation import slic
 import matplotlib.pyplot as plt
 
 from . import config
@@ -190,13 +191,12 @@ class ExplainabilityMethods:
         """
         input_tensor = input_tensor.to(self.device)
         
-        # Create feature mask using simple grid if not provided
+        # Create feature mask using SLIC if not provided
         if feature_mask is None:
             feature_mask = self._create_segmentation_mask(
-                input_tensor.shape[2], 
-                input_tensor.shape[3], 
+                input_tensor,  # Passa l'immagine intera!
                 n_segments
-            ).to(self.device)
+            )
         
         # Expand feature mask to match input channels
         if feature_mask.dim() == 2:
@@ -246,13 +246,12 @@ class ExplainabilityMethods:
         if baselines is None:
             baselines = torch.zeros_like(input_tensor).to(self.device)
         
-        # Create feature mask using simple grid if not provided
+        # Create feature mask using SLIC if not provided
         if feature_mask is None:
             feature_mask = self._create_segmentation_mask(
-                input_tensor.shape[2], 
-                input_tensor.shape[3], 
+                input_tensor,  # Passa l'immagine intera!
                 n_segments
-            ).to(self.device)
+            )
         
         # Expand feature mask to match input channels
         if feature_mask.dim() == 2:
@@ -378,33 +377,31 @@ class ExplainabilityMethods:
             attr_np = np.abs(attr_np)
         
         return attr_np
-    
-    def _create_segmentation_mask(
-        self,
-        height: int,
-        width: int,
-        n_segments: int
-    ) -> torch.Tensor:
-        """Create a simple grid-based segmentation mask."""
-        # Calculate grid dimensions
-        n_rows = int(np.sqrt(n_segments))
-        n_cols = n_segments // n_rows
+
+#INFO: utilizziamo SLIC e non un semplice grid per segmentare l'immagine in superpixels
+
+    def _create_segmentation_mask(self, input_tensor: torch.Tensor, n_segments: int) -> torch.Tensor:
+        """
+        Create a segmentation mask using SLIC superpixels.
+        """
+        # Porta su CPU e converti in numpy
+        img_np = input_tensor.cpu().detach().numpy()
         
-        mask = torch.zeros(height, width, dtype=torch.long)
+        # Gestione dimensioni: se c'è la dimensione batch (1, C, H, W), rimuovila
+        if img_np.ndim == 4:
+            img_np = img_np[0]  # Diventa (C, H, W)
+            
+        # Trasponi da (C, H, W) a (H, W, C) per scikit-image
+        # Controlliamo se la prima dimensione è i canali (3)
+        if img_np.shape[0] == 3:
+            img_np = np.transpose(img_np, (1, 2, 0))
+            
+        # Calcola segmenti con SLIC
+        # start_label=0 è fondamentale per far funzionare feature_mask con Captum
+        segments = slic(img_np, n_segments=n_segments, compactness=10, sigma=1, start_label=0)
         
-        row_size = height // n_rows
-        col_size = width // n_cols
-        
-        for i in range(n_rows):
-            for j in range(n_cols):
-                segment_id = i * n_cols + j
-                row_start = i * row_size
-                row_end = (i + 1) * row_size if i < n_rows - 1 else height
-                col_start = j * col_size
-                col_end = (j + 1) * col_size if j < n_cols - 1 else width
-                mask[row_start:row_end, col_start:col_end] = segment_id
-        
-        return mask
+        # Ritorna come tensore Long (intero) sul device corretto
+        return torch.from_numpy(segments).long().to(self.device)
     
     def normalize_attribution(self, attr_map: np.ndarray) -> np.ndarray:
         """Normalize attribution map to [0, 1] range."""
