@@ -47,7 +47,7 @@ NUM_WORKERS = 4
 # Explainability settings
 EXPLAINABILITY_METHODS = ['integrated_gradients', 'input_gradients', 'lime', 'kernel_shap']
 N_SAMPLES_LIME = 1000
-N_SAMPLES_SHAP = 100
+N_SAMPLES_SHAP = 300 #INFO: numero di samples per Kernel SHAP
 
 # Part annotation settings (15 parts in CUB-200)
 NUM_PARTS = 15
@@ -58,5 +58,5 @@ PART_NAMES = [
 ]
 
 # Evaluation settings
-PART_RADIUS = 15  # Radius around part center for creating ground-truth masks
+PART_RADIUS = 10  # Radius around part center for creating ground-truth masks
 TOP_K_PERCENT = [5, 10, 15, 20, 25]  # Percentage of top attribution pixels to consider

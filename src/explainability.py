@@ -171,7 +171,7 @@ class ExplainabilityMethods:
         target_class: int,
         n_samples: int = 1000,
         feature_mask: Optional[torch.Tensor] = None,
-        n_segments: int = 50
+        n_segments: int = 100 #INFO: parametro per SLIC (50 non da problemi)
     ) -> np.ndarray:
         """
         Compute LIME (Local Interpretable Model-agnostic Explanations) attribution.
@@ -221,7 +221,7 @@ class ExplainabilityMethods:
         target_class: int,
         n_samples: int = 100,
         feature_mask: Optional[torch.Tensor] = None,
-        n_segments: int = 50,
+        n_segments: int = 100, #INFO: parametro per SLIC (50 non da problemi)
         baselines: Optional[torch.Tensor] = None
     ) -> np.ndarray:
         """
