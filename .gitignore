@@ -1,0 +1,19 @@
+# Dataset
+CUB_200_2011/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Model checkpoints 
+models/
+
+# Output generati
+results/
+visualizations/
