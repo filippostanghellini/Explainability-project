@@ -17,7 +17,7 @@ from captum.attr import (
     Lime,
     KernelShap,
     Occlusion,
-    NoiseTunnel,
+    NoiseTunnel, #TODO: non viene utilizzato, "wrapper" che prende un metodo (es. Integrated Gradients), aggiunge rumore all'immagine più volte, calcola le spiegazioni e ne fa la media.
     LayerGradCam,
     LayerAttribution
 )
@@ -134,6 +134,8 @@ class ExplainabilityMethods:
         attr_map = self._to_grayscale(attributions)
         return attr_map
     
+#TODO: comprendere se va rimosso dato che non è richiesto
+
     def get_saliency(
         self,
         input_tensor: torch.Tensor,
@@ -270,7 +272,9 @@ class ExplainabilityMethods:
         
         attr_map = self._to_grayscale(attributions)
         return attr_map
-    
+
+#TODO: comprendere se va rimosso dato che non è richiesto
+
     def get_occlusion(
         self,
         input_tensor: torch.Tensor,
