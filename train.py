@@ -119,6 +119,7 @@ def plot_training_curves(history: Dict, save_path: str):
     plt.close()
     print(f"Training curves saved to {save_path}")
 
+#INFO: training configuration
 
 def train(
     num_epochs: int = 30,
@@ -242,6 +243,7 @@ def train(
     
     return model, history
 
+# INFO: python train.py --epochs 50 --batch_size 64 --lr 0.0005 --model resnet50
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train CUB-200-2011 classifier')
