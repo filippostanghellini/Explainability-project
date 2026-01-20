@@ -62,9 +62,10 @@ class ExplainabilityMethods:
         # Perturbation-based methods
         self.occlusion = Occlusion(self.model)
         
-        # LIME and SHAP need special handling
+        # LIME and SHAP
         self.lime = Lime(self.model)
         self.kernel_shap = KernelShap(self.model)
+        self.gradient_shap = GradientShap(self.model)
     
     def get_integrated_gradients(
         self,

@@ -12,10 +12,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from PIL import Image
 import pandas as pd
-from captum.insights import Neuron, AttributionVisualizer
-from captum.insights.attr import visualization as captum_viz
 import torch.nn.functional as F
-
 
 from . import config
 
@@ -202,7 +199,7 @@ def create_captum_insights_visualization(
     save_path: Optional[str] = None
 ) -> None:
     """
-    Create Captum Insights visualization with integrated attribution methods.
+    Create model analysis visualization.
     
     Args:
         model: Trained PyTorch model
@@ -215,12 +212,6 @@ def create_captum_insights_visualization(
     
     device = next(model.parameters()).device
     model.eval()
-    
-    # Define prediction function
-    def predict_fn(x):
-        with torch.no_grad():
-            output = model(x)
-            return F.softmax(output, dim=1)
     
     # Get prediction and confidence
     with torch.no_grad():
