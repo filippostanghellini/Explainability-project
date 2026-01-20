@@ -42,7 +42,7 @@ BATCH_SIZE = 32
 NUM_EPOCHS = 30
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 1e-4
-NUM_WORKERS = 4
+NUM_WORKERS = 4 # Set to 8 with L40s
 
 # Explainability settings
 EXPLAINABILITY_METHODS = ['integrated_gradients', 'input_gradients', 'lime', 'kernel_shap']
