@@ -20,7 +20,7 @@ class CUB200Classifier(nn.Module):
         self,
         num_classes: int = 200,
         pretrained: bool = True,
-        freeze_backbone: bool = False
+        freeze_backbone: bool = False #INFO: add option to freeze backbone
     ):
         """
         Initialize the classifier.
@@ -86,12 +86,14 @@ class CUB200ClassifierVGG(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.backbone(x)
 
+#INFO: define de model here
 
 def create_model(
     model_type: str = 'resnet50',
     num_classes: int = 200,
     pretrained: bool = True,
-    device: Optional[torch.device] = None
+    device: Optional[torch.device] = None,
+    freeze_backbone: bool = False,
 ) -> nn.Module:
     """
     Factory function to create models.
@@ -101,6 +103,7 @@ def create_model(
         num_classes: Number of output classes
         pretrained: Use pretrained weights
         device: Device to place model on
+        freeze_backbone: Whether to freeze the backbone layers
         
     Returns:
         Initialized model
@@ -130,7 +133,7 @@ def save_model(model: nn.Module, path: str, optimizer=None, epoch: int = 0, accu
     
     torch.save(checkpoint, path)
     print(f"Model saved to {path}")
-
+    
 
 def load_model(
     path: str,
