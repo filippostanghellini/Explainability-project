@@ -16,6 +16,7 @@ from captum.attr import (
     GuidedGradCam,
     Lime,
     KernelShap,
+    GradientShap,
     Occlusion,
     NoiseTunnel, #TODO: non viene utilizzato, "wrapper" che prende un metodo (es. Integrated Gradients), aggiunge rumore all'immagine più volte, calcola le spiegazioni e ne fa la media.
     LayerGradCam,
@@ -310,6 +311,136 @@ class ExplainabilityMethods:
         attr_map = self._to_grayscale(attributions)
         return attr_map
     
+    def get_gradient_shap(
+        self,
+        input_tensor: torch.Tensor,
+        target_class: int,
+        n_samples: int = 50,
+        baselines: Optional[torch.Tensor] = None
+    ) -> np.ndarray:
+        """
+        Compute Gradient SHAP attribution.
+        
+        Gradient SHAP combines SHAP with gradient information for efficiency.
+        More efficient than Kernel SHAP as it uses gradients instead of perturbation.
+        
+        Args:
+            input_tensor: Input image tensor (1, C, H, W)
+            target_class: Target class for attribution
+            n_samples: Number of samples for baseline averaging
+            baselines: Baseline tensor for SHAP (default: random noise)
+            
+        Returns:
+            Attribution map as numpy array (H, W)
+        """
+        input_tensor = input_tensor.to(self.device)
+        
+        if baselines is None:
+            # Generate random baselines
+            baselines = torch.randn_like(input_tensor).to(self.device)
+        
+        attributions = self.gradient_shap.attribute(
+            input_tensor,
+            baselines=baselines,
+            target=target_class,
+            n_samples=n_samples,
+            stdevs=0.09
+        )
+        
+        attr_map = self._to_grayscale(attributions)
+        return attr_map
+    
+    def get_integrated_gradients_with_noise(
+        self,
+        input_tensor: torch.Tensor,
+        target_class: int,
+        n_steps: int = 50,
+        baselines: Optional[torch.Tensor] = None,
+        nt_type: str = 'smoothgrad',
+        nt_samples: int = 10,
+        stdevs: float = 0.15
+    ) -> np.ndarray:
+        """
+        Compute Integrated Gradients with NoiseTunnel (SmoothGrad variant).
+        
+        Adds noise to the input multiple times, computes attributions for each,
+        and averages them for more robust explanations.
+        
+        Args:
+            input_tensor: Input image tensor (1, C, H, W)
+            target_class: Target class for attribution
+            n_steps: Number of steps for integration
+            baselines: Baseline tensor (default: zeros)
+            nt_type: Noise tunnel type ('smoothgrad' or 'vargrad')
+            nt_samples: Number of noise samples to average
+            stdevs: Standard deviation of noise
+            
+        Returns:
+            Attribution map as numpy array (H, W)
+        """
+        input_tensor = input_tensor.to(self.device)
+        input_tensor.requires_grad = True
+        
+        if baselines is None:
+            baselines = torch.zeros_like(input_tensor).to(self.device)
+        
+        # Wrap Integrated Gradients with NoiseTunnel
+        ig_with_noise = NoiseTunnel(self.integrated_gradients)
+        
+        attributions = ig_with_noise.attribute(
+            input_tensor,
+            baselines=baselines,
+            target=target_class,
+            n_steps=n_steps,
+            nt_type=nt_type,
+            nt_samples=nt_samples,
+            stdevs=stdevs,
+            return_convergence_delta=False
+        )
+        
+        attr_map = self._to_grayscale(attributions)
+        return attr_map
+    
+    def get_saliency_with_noise(
+        self,
+        input_tensor: torch.Tensor,
+        target_class: int,
+        abs_value: bool = True,
+        nt_type: str = 'smoothgrad',
+        nt_samples: int = 10,
+        stdevs: float = 0.15
+    ) -> np.ndarray:
+        """
+        Compute Saliency with NoiseTunnel for improved robustness.
+        
+        Args:
+            input_tensor: Input image tensor (1, C, H, W)
+            target_class: Target class for attribution
+            abs_value: Whether to take absolute value
+            nt_type: Noise tunnel type ('smoothgrad' or 'vargrad')
+            nt_samples: Number of noise samples to average
+            stdevs: Standard deviation of noise
+            
+        Returns:
+            Attribution map as numpy array (H, W)
+        """
+        input_tensor = input_tensor.to(self.device)
+        input_tensor.requires_grad = True
+        
+        saliency_with_noise = NoiseTunnel(self.saliency)
+        
+        attributions = saliency_with_noise.attribute(
+            input_tensor,
+            target=target_class,
+            abs=abs_value,
+            nt_type=nt_type,
+            nt_samples=nt_samples,
+            stdevs=stdevs
+        )
+        
+        attr_map = self._to_grayscale(attributions)
+        return attr_map
+    
     def get_all_attributions(
         self,
         input_tensor: torch.Tensor,
@@ -356,9 +487,24 @@ class ExplainabilityMethods:
                         input_tensor, target_class,
                         n_samples=config.N_SAMPLES_SHAP
                     )
+                elif method == 'gradient_shap':
+                    attributions[method] = self.get_gradient_shap(
+                        input_tensor, target_class,
+                        n_samples=config.N_SAMPLES_SHAP
+                    )
                 elif method == 'occlusion':
                     attributions[method] = self.get_occlusion(
                         input_tensor, target_class
+                    )
+                elif method == 'integrated_gradients_noise':
+                    attributions[method] = self.get_integrated_gradients_with_noise(
+                        input_tensor, target_class,
+                        nt_samples=config.NT_SAMPLES if hasattr(config, 'NT_SAMPLES') else 10
+                    )
+                elif method == 'saliency_noise':
+                    attributions[method] = self.get_saliency_with_noise(
+                        input_tensor, target_class,
+                        nt_samples=config.NT_SAMPLES if hasattr(config, 'NT_SAMPLES') else 10
                     )
             except Exception as e:
                 print(f"Error computing {method}: {e}")
@@ -576,5 +722,9 @@ if __name__ == "__main__":
     print("\nTesting LIME (this may take a while)...")
     lime_attr = explainer.get_lime(input_tensor, target_class, n_samples=100)
     print(f"  Shape: {lime_attr.shape}")
+    
+    print("\nTesting Gradient SHAP...")
+    grad_shap_attr = explainer.get_gradient_shap(input_tensor, target_class, n_samples=50)
+    print(f"  Shape: {grad_shap_attr.shape}")
     
     print("\nAll tests passed!")
