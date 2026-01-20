@@ -526,6 +526,191 @@ class PlausibilityEvaluator:
         return compare_methods_statistical(all_metrics, metric)
 
 
+def sanity_check_explanations(
+    model: torch.nn.Module,
+    explainer,
+    input_tensor: torch.Tensor,
+    target_class: int,
+    methods: List[str] = None,
+    n_random_seeds: int = 5
+) -> Dict[str, List[float]]:
+    """
+    Sanity check for explanations.
+    
+    Randomizes model weights and recomputes explanations.
+    The attributions should change significantly with random weights.
+    
+    Args:
+        model: Trained PyTorch model
+        explainer: ExplainabilityMethods instance
+        input_tensor: Input image tensor (1, C, H, W)
+        target_class: Target class for attribution
+        methods: List of explanation methods to test
+        n_random_seeds: Number of random initializations to test
+        
+    Returns:
+        Dictionary mapping method names to lists of correlation changes
+    """
+    if methods is None:
+        methods = config.EXPLAINABILITY_METHODS
+    
+    device = next(model.parameters()).device
+    original_state = {name: param.clone() for name, param in model.named_parameters()}
+    
+    # Get original attributions
+    original_attrs = explainer.get_all_attributions(input_tensor, target_class, methods)
+    
+    correlation_changes = {method: [] for method in methods}
+    
+    print(f"Running sanity check with {n_random_seeds} random initializations...")
+    
+    for seed in tqdm(range(n_random_seeds)):
+        # Randomize model weights
+        torch.manual_seed(seed)
+        for param in model.parameters():
+            if len(param.shape) > 1:  # Skip biases
+                torch.nn.init.kaiming_uniform_(param, a=0, mode='fan_in', nonlinearity='relu')
+            else:
+                torch.nn.init.uniform_(param, 0, 1)
+        
+        # Compute attributions with random weights
+        random_attrs = explainer.get_all_attributions(input_tensor, target_class, methods)
+        
+        # Compute correlation between original and random attributions
+        for method in methods:
+            if original_attrs[method] is not None and random_attrs[method] is not None:
+                orig_flat = original_attrs[method].flatten()
+                rand_flat = random_attrs[method].flatten()
+                
+                # Compute Spearman correlation
+                try:
+                    corr, _ = spearmanr(orig_flat, rand_flat)
+                    corr = corr if not np.isnan(corr) else 0.0
+                except:
+                    corr = 0.0
+                
+                correlation_changes[method].append(corr)
+    
+    # Restore original weights
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            if name in original_state:
+                param.copy_(original_state[name])
+    
+    return correlation_changes
+
+
+def print_sanity_check_results(
+    sanity_results: Dict[str, List[float]]
+) -> None:
+    """
+    Print and analyze sanity check results.
+    
+    Expected behavior:
+    - Correlations should be LOW (close to 0)
+    - This indicates explanations are NOT just random noise
+    
+    Args:
+        sanity_results: Results from sanity_check_explanations
+    """
+    print("\n" + "="*60)
+    print("SANITY CHECK RESULTS")
+    print("="*60)
+    print("\nExpected: Correlations should be LOW (close to 0)")
+    print("If correlations are HIGH, explanations may be artifacts\n")
+    
+    for method, correlations in sanity_results.items():
+        if not correlations:
+            print(f"{method:20s}: NO DATA")
+            continue
+        
+        mean_corr = np.mean(correlations)
+        std_corr = np.std(correlations)
+        min_corr = np.min(correlations)
+        max_corr = np.max(correlations)
+        
+        # Interpretation
+        if mean_corr < 0.1:
+            status = "✓ PASS (good - explanations are not random)"
+        elif mean_corr < 0.3:
+            status = "⚠ WARNING (correlations are higher than expected)"
+        else:
+            status = "✗ FAIL (explanations may be artifacts)"
+        
+        print(f"{method:20s}")
+        print(f"  Mean correlation:  {mean_corr:7.4f} ± {std_corr:.4f}")
+        print(f"  Range:             [{min_corr:.4f}, {max_corr:.4f}]")
+        print(f"  Status:            {status}\n")
+
+
+class SanityCheckEvaluator:
+    """
+    Systematic sanity check evaluator for multiple images.
+    """
+    
+    def __init__(self, model: torch.nn.Module, explainer, n_random_seeds: int = 5):
+        """
+        Initialize sanity check evaluator.
+        
+        Args:
+            model: Trained PyTorch model
+            explainer: ExplainabilityMethods instance
+            n_random_seeds: Number of random initializations per image
+        """
+        self.model = model
+        self.explainer = explainer
+        self.n_random_seeds = n_random_seeds
+        self.results = []
+    
+    def evaluate_batch(
+        self,
+        input_tensors: List[torch.Tensor],
+        target_classes: List[int],
+        methods: List[str] = None
+    ):
+        """
+        Run sanity check on a batch of images.
+        
+        Args:
+            input_tensors: List of input image tensors
+            target_classes: List of target classes
+            methods: List of explanation methods to test
+        """
+        for i, (input_tensor, target_class) in enumerate(zip(input_tensors, target_classes)):
+            result = sanity_check_explanations(
+                self.model,
+                self.explainer,
+                input_tensor,
+                target_class,
+                methods,
+                self.n_random_seeds
+            )
+            
+            self.results.append({
+                'image_idx': i,
+                'target_class': target_class,
+                'correlations': result
+            })
+    
+    def get_summary(self) -> pd.DataFrame:
+        """Get aggregated summary of sanity check results."""
+        rows = []
+        
+        for result in self.results:
+            for method, correlations in result['correlations'].items():
+                if correlations:
+                    rows.append({
+                        'image_idx': result['image_idx'],
+                        'method': method,
+                        'mean_correlation': np.mean(correlations),
+                        'std_correlation': np.std(correlations),
+                        'min_correlation': np.min(correlations),
+                        'max_correlation': np.max(correlations)
+                    })
+        
+        return pd.DataFrame(rows)
+
+
 if __name__ == "__main__":
     # Test metrics
     print("Testing plausibility metrics...")
@@ -554,3 +739,31 @@ if __name__ == "__main__":
     perfect_metrics = compute_all_metrics(perfect_attr, gt_mask)
     for name, value in perfect_metrics.items():
         print(f"  {name}: {value:.4f}")
+    
+    # Test sanity check
+    print("Testing sanity check...")
+    
+    # Dummy model and explainer (replace with actual instances)
+    class DummyModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv = torch.nn.Conv2d(3, 3, 3, padding=1)
+        
+        def forward(self, x):
+            return self.conv(x)
+    
+    class DummyExplainer:
+        def get_all_attributions(self, input_tensor, target_class, methods):
+            # Dummy implementation: random attributions
+            return {method: np.random.rand(*input_tensor.shape[2:]) for method in methods}
+    
+    model = DummyModel()
+    explainer = DummyExplainer()
+    
+    # Dummy input tensor (1 image, 3 channels, 224x224)
+    input_tensor = torch.rand(1, 3, 224, 224)
+    target_class = 1  # Arbitrary class
+    
+    # Run sanity check
+    sanity_results = sanity_check_explanations(model, explainer, input_tensor, target_class)
+    print_sanity_check_results(sanity_results)

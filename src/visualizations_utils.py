@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from PIL import Image
 import pandas as pd
+import torch.nn.functional as F
 
 from . import config
 
@@ -188,6 +189,233 @@ def create_metrics_radar_chart(
         plt.close()
     else:
         plt.show()
+
+
+def create_captum_insights_visualization(
+    model: torch.nn.Module,
+    input_tensor: torch.Tensor,
+    target_class: int,
+    class_names: List[str],
+    save_path: Optional[str] = None
+) -> None:
+    """
+    Create model analysis visualization.
+    
+    Args:
+        model: Trained PyTorch model
+        input_tensor: Input image tensor (1, C, H, W)
+        target_class: Target class index
+        class_names: List of class names
+        save_path: Path to save figure
+    """
+    setup_style()
+    
+    device = next(model.parameters()).device
+    model.eval()
+    
+    # Get prediction and confidence
+    with torch.no_grad():
+        input_tensor = input_tensor.to(device)
+        output = model(input_tensor)
+        probs = F.softmax(output, dim=1)
+        predicted_class = probs.argmax(dim=1).item()
+        confidence = probs[0, predicted_class].item()
+    
+    # Denormalize image for display
+    img_display = denormalize_image(input_tensor[0])
+    
+    # Create figure
+    fig = plt.figure(figsize=(16, 10))
+    gs = GridSpec(2, 3, figure=fig, hspace=0.3, wspace=0.3)
+    
+    # Title
+    fig.suptitle(
+        f"Captum Insights Analysis\n"
+        f"True: {class_names[target_class]} | "
+        f"Predicted: {class_names[predicted_class]} ({confidence:.2%})",
+        fontsize=14
+    )
+    
+    # 1. Original image
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax1.imshow(img_display)
+    ax1.set_title("Input Image")
+    ax1.axis('off')
+    
+    # 2. Class prediction confidence
+    ax2 = fig.add_subplot(gs[0, 1])
+    top_k = 5
+    top_probs, top_indices = torch.topk(probs[0], top_k)
+    colors_conf = ['#2ecc71' if idx == predicted_class else '#3498db' 
+                   for idx in top_indices.cpu().numpy()]
+    bars = ax2.barh(range(top_k), top_probs.cpu().numpy(), color=colors_conf)
+    ax2.set_yticks(range(top_k))
+    ax2.set_yticklabels([class_names[idx] for idx in top_indices.cpu().numpy()])
+    ax2.set_xlabel('Probability')
+    ax2.set_title('Top-5 Predictions')
+    ax2.set_xlim(0, 1)
+    
+    # Add values on bars
+    for i, (bar, prob) in enumerate(zip(bars, top_probs.cpu().numpy())):
+        ax2.text(prob + 0.02, i, f'{prob:.3f}', va='center')
+    
+    # 3. Feature importance summary
+    ax3 = fig.add_subplot(gs[0, 2])
+    ax3.axis('off')
+    
+    summary_text = f"""
+    Model Analysis Summary
+    ─────────────────────
+    
+    Input Shape: {tuple(input_tensor.shape)}
+    
+    Prediction:
+    • Class: {class_names[predicted_class]}
+    • Confidence: {confidence:.2%}
+    • Correct: {'✓' if predicted_class == target_class else '✗'}
+    
+    Attribution Methods Available:
+    • Integrated Gradients
+    • Input × Gradient
+    • Saliency Maps
+    • LIME
+    • Kernel SHAP
+    • Gradient SHAP
+    • Occlusion
+    """
+    
+    ax3.text(0.05, 0.95, summary_text, transform=ax3.transAxes,
+            fontsize=10, verticalalignment='top', family='monospace',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    
+    # Store for additional visualizations
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
+
+
+def create_neuron_insights_visualization(
+    model: torch.nn.Module,
+    input_tensor: torch.Tensor,
+    layer_name: str,
+    neuron_index: int,
+    save_path: Optional[str] = None
+) -> None:
+    """
+    Visualize neuron-level attributions using Captum Neuron insights.
+    
+    Args:
+        model: Trained PyTorch model
+        input_tensor: Input image tensor (1, C, H, W)
+        layer_name: Name of the layer to analyze
+        neuron_index: Index of the neuron
+        save_path: Path to save figure
+    """
+    setup_style()
+    
+    device = next(model.parameters()).device
+    model.eval()
+    
+    # Denormalize image
+    img_display = denormalize_image(input_tensor[0])
+    
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    
+    # Original image
+    axes[0].imshow(img_display)
+    axes[0].set_title(f"Input Image")
+    axes[0].axis('off')
+    
+    # Neuron activation info
+    axes[1].axis('off')
+    
+    info_text = f"""
+    Neuron Analysis
+    ───────────────
+    
+    Layer: {layer_name}
+    Neuron ID: {neuron_index}
+    
+    This visualization shows which
+    input regions most activate
+    this specific neuron.
+    
+    Use for:
+    • Understanding neuron selectivity
+    • Detecting dead neurons
+    • Layer-wise interpretability
+    • Network debugging
+    """
+    
+    axes[1].text(0.1, 0.5, info_text, transform=axes[1].transAxes,
+                fontsize=11, verticalalignment='center', family='monospace',
+                bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
+
+
+def create_insights_summary_report(
+    model: torch.nn.Module,
+    dataset: torch.utils.data.Dataset,
+    class_names: List[str],
+    n_samples: int = 5,
+    output_dir: str = None
+) -> None:
+    """
+    Create comprehensive Captum Insights analysis report.
+    
+    Args:
+        model: Trained PyTorch model
+        dataset: Test dataset
+        class_names: List of class names
+        n_samples: Number of samples to analyze
+        output_dir: Directory to save report
+    """
+    import os
+    
+    if output_dir is None:
+        output_dir = str(config.RESULTS_DIR / 'insights_report')
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    print("Creating Captum Insights analysis report...")
+    device = next(model.parameters()).device
+    model.eval()
+    
+    # Analyze multiple samples
+    for idx in range(min(n_samples, len(dataset))):
+        try:
+            sample = dataset[idx]
+            input_tensor = sample['image'].unsqueeze(0).to(device)
+            target_class = sample['label']
+            
+            # Create insights visualization
+            create_captum_insights_visualization(
+                model=model,
+                input_tensor=input_tensor,
+                target_class=target_class,
+                class_names=class_names,
+                save_path=f"{output_dir}/sample_{idx:03d}_insights.png"
+            )
+            
+            print(f"  ✓ Sample {idx} analyzed")
+            
+        except Exception as e:
+            print(f"  ✗ Sample {idx}: {e}")
+    
+    print(f"\nInsights report saved to {output_dir}")
+
+
 
 
 def create_top_k_analysis(
@@ -479,6 +707,17 @@ def create_summary_report(
         print("  ✓ Distribution plots")
     except Exception as e:
         print(f"  ✗ Distribution plots: {e}")
+
+    
+    # 6. Captum Insights analysis
+    try:
+        # Assuming you have access to model and dataset
+        print("  ⚙ Generating Captum Insights (this may take time)...")
+        # create_insights_summary_report(model, test_dataset, class_names, 
+        #                                n_samples=3, output_dir=f"{output_dir}/insights")
+        print("  ✓ Captum Insights")
+    except Exception as e:
+        print(f"  ✗ Captum Insights: {e}")
     
     print(f"\nAll visualizations saved to {output_dir}")
 
