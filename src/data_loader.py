@@ -324,33 +324,3 @@ def get_dataloaders(
     )
     
     return train_loader, test_loader
-
-
-if __name__ == "__main__":
-    # Test data loading
-    print("Loading data...")
-    
-    images = load_images_list()
-    print(f"Total images: {len(images)}")
-    
-    split = load_train_test_split()
-    train_count = split['is_train'].sum()
-    print(f"Train images: {train_count}, Test images: {len(split) - train_count}")
-    
-    class_names = load_class_names()
-    print(f"Number of classes: {len(class_names)}")
-    
-    parts = load_part_locations()
-    print(f"Part annotations: {len(parts)}")
-    
-    part_names = load_part_names()
-    print(f"Part names: {list(part_names.values())}")
-    
-    # Test dataset
-    dataset = CUB200Dataset(is_train=True, transform=get_transforms(True), load_parts=True)
-    print(f"\nDataset size: {len(dataset)}")
-    
-    sample = dataset[0]
-    print(f"Sample image shape: {sample['image'].shape}")
-    print(f"Sample label: {sample['label']}")
-    print(f"Part mask shape: {sample['part_mask'].shape}")

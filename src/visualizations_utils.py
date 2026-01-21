@@ -43,6 +43,176 @@ def denormalize_image(tensor: torch.Tensor) -> np.ndarray:
     return img
 
 
+# Metodi che usano colormap divergente (preservano il segno)
+# gradient_shap usa cmap="hot" con valore assoluto per migliore visualizzazione
+DIVERGENT_METHODS = {'lime', 'kernel_shap'}
+
+
+def visualize_attribution(
+    input_image: np.ndarray,
+    attribution_map: np.ndarray,
+    method_name: str = "Attribution",
+    title: str = None,
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> None:
+    """
+    Visualize attribution map overlaid on the input image.
+    
+    Uses divergent colormap (RdBu_r) for perturbation-based methods (LIME, SHAP)
+    and sequential colormap (hot) for gradient-based methods.
+    
+    Args:
+        input_image: Original image as numpy array (H, W, C)
+        attribution_map: Attribution map (H, W)
+        method_name: Name of the method (used to determine colormap)
+        title: Plot title (defaults to method_name if not provided)
+        save_path: Path to save the figure
+        show: Whether to display the figure
+    """
+    if title is None:
+        title = method_name
+        
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    
+    # Original image
+    axes[0].imshow(input_image)
+    axes[0].set_title("Original Image")
+    axes[0].axis('off')
+    
+    # Determine colormap based on method type
+    if method_name.lower() in DIVERGENT_METHODS:
+        # Perturbation-based: divergent colormap centered at 0
+        vmax = np.abs(attribution_map).max()
+        vmin = -vmax
+        cmap = 'RdBu_r'
+        
+        # Attribution heatmap
+        im = axes[1].imshow(attribution_map, cmap=cmap, vmin=vmin, vmax=vmax)
+        axes[1].set_title(f"{title} Attribution")
+        axes[1].axis('off')
+        plt.colorbar(im, ax=axes[1], fraction=0.046)
+        
+        # Overlay
+        axes[2].imshow(input_image)
+        overlay = axes[2].imshow(attribution_map, cmap=cmap, alpha=0.6, vmin=vmin, vmax=vmax)
+        axes[2].set_title("Overlay")
+        axes[2].axis('off')
+        plt.colorbar(overlay, ax=axes[2], fraction=0.046)
+    else:
+        # Gradient-based: sequential colormap
+        attr_norm = (attribution_map - attribution_map.min()) / (attribution_map.max() - attribution_map.min() + 1e-8)
+        cmap = 'hot'
+        
+        # Attribution heatmap
+        im = axes[1].imshow(attr_norm, cmap=cmap)
+        axes[1].set_title(f"{title} Attribution")
+        axes[1].axis('off')
+        plt.colorbar(im, ax=axes[1], fraction=0.046)
+        
+        # Overlay
+        axes[2].imshow(input_image)
+        overlay = axes[2].imshow(attr_norm, cmap=cmap, alpha=0.5)
+        axes[2].set_title("Overlay")
+        axes[2].axis('off')
+        plt.colorbar(overlay, ax=axes[2], fraction=0.046)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+
+def visualize_all_methods(
+    input_image: np.ndarray,
+    attributions: Dict[str, np.ndarray],
+    part_mask: Optional[np.ndarray] = None,
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> None:
+    """
+    Visualize attributions from all methods in a single figure.
+    
+    Uses divergent colormap (RdBu_r) for perturbation-based methods (LIME, SHAP)
+    and sequential colormap (hot) for gradient-based methods.
+    
+    Args:
+        input_image: Original image as numpy array (H, W, C)
+        attributions: Dictionary of attribution maps
+        part_mask: Optional ground truth part mask
+        save_path: Path to save the figure
+        show: Whether to display the figure
+    """
+    n_methods = len(attributions) + (1 if part_mask is not None else 0) + 1
+    n_cols = 3
+    n_rows = (n_methods + n_cols - 1) // n_cols
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+    axes = axes.flatten()
+    
+    # Original image
+    axes[0].imshow(input_image)
+    axes[0].set_title("Original Image")
+    axes[0].axis('off')
+    
+    # Ground truth part mask if available
+    idx = 1
+    if part_mask is not None:
+        axes[idx].imshow(input_image)
+        axes[idx].imshow(part_mask, cmap='Greens', alpha=0.5)
+        axes[idx].set_title("Ground Truth Parts")
+        axes[idx].axis('off')
+        idx += 1
+    
+    # Attribution maps
+    for method_name, attr_map in attributions.items():
+        if attr_map is not None:
+            # Scegli colormap in base al tipo di metodo
+            if method_name in DIVERGENT_METHODS:
+                # Perturbation-based: colormap divergente centrata su 0
+                # Rosso = aumenta probabilità, Blu = diminuisce
+                vmax = np.abs(attr_map).max()
+                vmin = -vmax  # Simmetrico attorno a 0
+                cmap = 'RdBu_r'  # Red (positive) - White (zero) - Blue (negative)
+                
+                axes[idx].imshow(input_image)
+                im = axes[idx].imshow(attr_map, cmap=cmap, alpha=0.7, vmin=vmin, vmax=vmax)
+                plt.colorbar(im, ax=axes[idx], fraction=0.046, pad=0.04)
+            else:
+                # Gradient-based: colormap sequenziale (già in valore assoluto)
+                attr_norm = (attr_map - attr_map.min()) / (attr_map.max() - attr_map.min() + 1e-8)
+                cmap = 'hot'
+                
+                axes[idx].imshow(input_image)
+                im = axes[idx].imshow(attr_norm, cmap=cmap, alpha=0.6)
+            
+            axes[idx].set_title(method_name.replace('_', ' ').title())
+            axes[idx].axis('off')
+        else:
+            axes[idx].set_title(f"{method_name} (failed)")
+            axes[idx].axis('off')
+        idx += 1
+    
+    # Hide remaining axes
+    for i in range(idx, len(axes)):
+        axes[i].axis('off')
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+
 def create_comparison_figure(
     image: np.ndarray,
     attributions: Dict[str, np.ndarray],
@@ -94,9 +264,15 @@ def create_comparison_figure(
     for idx, (method_name, attr_map) in enumerate(attributions.items()):
         ax = axes[0, idx + 2]
         if attr_map is not None:
-            # Normalize for display
-            attr_norm = (attr_map - attr_map.min()) / (attr_map.max() - attr_map.min() + 1e-8)
-            im = ax.imshow(attr_norm, cmap='hot')
+            if method_name in DIVERGENT_METHODS:
+                # Perturbation-based: colormap divergente centrata su 0
+                vmax = np.abs(attr_map).max()
+                vmin = -vmax
+                im = ax.imshow(attr_map, cmap='RdBu_r', vmin=vmin, vmax=vmax)
+            else:
+                # Gradient-based: colormap sequenziale
+                attr_norm = (attr_map - attr_map.min()) / (attr_map.max() - attr_map.min() + 1e-8)
+                im = ax.imshow(attr_norm, cmap='hot')
             ax.set_title(method_name.replace('_', ' ').title())
         else:
             ax.set_title(f"{method_name}\n(failed)")
@@ -116,8 +292,15 @@ def create_comparison_figure(
         ax = axes[1, idx + 2]
         ax.imshow(image)
         if attr_map is not None:
-            attr_norm = (attr_map - attr_map.min()) / (attr_map.max() - attr_map.min() + 1e-8)
-            ax.imshow(attr_norm, cmap='hot', alpha=0.5)
+            if method_name in DIVERGENT_METHODS:
+                # Perturbation-based: colormap divergente
+                vmax = np.abs(attr_map).max()
+                vmin = -vmax
+                ax.imshow(attr_map, cmap='RdBu_r', alpha=0.6, vmin=vmin, vmax=vmax)
+            else:
+                # Gradient-based: colormap sequenziale
+                attr_norm = (attr_map - attr_map.min()) / (attr_map.max() - attr_map.min() + 1e-8)
+                ax.imshow(attr_norm, cmap='hot', alpha=0.5)
         ax.set_title(f"{method_name.replace('_', ' ').title()} Overlay")
         ax.axis('off')
     
@@ -720,38 +903,3 @@ def create_summary_report(
         print(f"  ✗ Captum Insights: {e}")
     
     print(f"\nAll visualizations saved to {output_dir}")
-
-
-if __name__ == "__main__":
-    # Test visualizations with dummy data
-    print("Testing visualization utilities...")
-    
-    # Create dummy data
-    np.random.seed(42)
-    
-    methods = ['integrated_gradients', 'input_gradients', 'lime', 'kernel_shap']
-    
-    # Dummy summary DataFrame
-    summary_data = []
-    for method in methods:
-        row = {
-            'method': method,
-            'pointing_game_mean': np.random.uniform(0.3, 0.8),
-            'pointing_game_std': np.random.uniform(0.1, 0.2),
-            'ebpg_mean': np.random.uniform(0.2, 0.6),
-            'ebpg_std': np.random.uniform(0.1, 0.15),
-            'auc_roc_mean': np.random.uniform(0.5, 0.8),
-            'auc_roc_std': np.random.uniform(0.05, 0.1),
-            'average_precision_mean': np.random.uniform(0.3, 0.7),
-            'average_precision_std': np.random.uniform(0.1, 0.2)
-        }
-        summary_data.append(row)
-    
-    summary_df = pd.DataFrame(summary_data)
-    
-    print("Summary DataFrame created for testing")
-    print(summary_df)
-    
-    # Test radar chart
-    create_metrics_radar_chart(summary_df, save_path=str(config.RESULTS_DIR / 'test_radar.png'))
-    print(f"Test radar chart saved to {config.RESULTS_DIR / 'test_radar.png'}")

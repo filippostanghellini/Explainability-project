@@ -6,25 +6,18 @@ Implements LIME, SHAP (KernelSHAP), Integrated Gradients, and Input Gradients.
 import torch
 import torch.nn as nn
 import numpy as np
-from typing import Dict, List, Tuple, Optional, Callable
-from PIL import Image
+from typing import Dict, List, Tuple, Optional
 from captum.attr import (
     IntegratedGradients,
     InputXGradient,
     Saliency,
-    GuidedBackprop,
-    GuidedGradCam,
     Lime,
     KernelShap,
     GradientShap,
     Occlusion,
-    NoiseTunnel,
-    LayerGradCam,
-    LayerAttribution
+    NoiseTunnel
 )
-from captum.attr._utils.visualization import visualize_image_attr
 from skimage.segmentation import slic
-import matplotlib.pyplot as plt
 
 from . import config
 
@@ -56,7 +49,6 @@ class ExplainabilityMethods:
         self.integrated_gradients = IntegratedGradients(self.model)
         self.input_x_gradient = InputXGradient(self.model)
         self.saliency = Saliency(self.model)
-        self.guided_backprop = GuidedBackprop(self.model)
         
         # Perturbation-based methods
         self.occlusion = Occlusion(self.model)
@@ -176,7 +168,7 @@ class ExplainabilityMethods:
         target_class: int,
         n_samples: int = 1000,
         feature_mask: Optional[torch.Tensor] = None,
-        n_segments: int = 100 #INFO: parametro per SLIC (50 non da problemi)
+        n_segments: int = 100
     ) -> np.ndarray:
         """
         Compute LIME (Local Interpretable Model-agnostic Explanations) attribution.
@@ -218,7 +210,8 @@ class ExplainabilityMethods:
             show_progress=False
         )
         
-        attr_map = self._to_grayscale(attributions)
+        # Perturbation-based: preserve sign for divergent colormap
+        attr_map = self._to_grayscale(attributions, take_abs=False)
         return attr_map
     
     def get_kernel_shap(
@@ -227,7 +220,7 @@ class ExplainabilityMethods:
         target_class: int,
         n_samples: int = 100,
         feature_mask: Optional[torch.Tensor] = None,
-        n_segments: int = 100, #INFO: parametro per SLIC (50 non da problemi)
+        n_segments: int = 100,
         baselines: Optional[torch.Tensor] = None
     ) -> np.ndarray:
         """
@@ -275,10 +268,9 @@ class ExplainabilityMethods:
             show_progress=False
         )
         
-        attr_map = self._to_grayscale(attributions)
+        # Perturbation-based: preserve sign for divergent colormap
+        attr_map = self._to_grayscale(attributions, take_abs=False)
         return attr_map
-
-#TODO: comprendere se va rimosso dato che non è richiesto
 
     def get_occlusion(
         self,
@@ -353,7 +345,8 @@ class ExplainabilityMethods:
             stdevs=0.09
         )
         
-        attr_map = self._to_grayscale(attributions)
+        # Gradient-based SHAP: use absolute value for hot colormap visualization
+        attr_map = self._to_grayscale(attributions, take_abs=True)
         return attr_map
     
     def get_integrated_gradients_with_noise(
@@ -520,27 +513,40 @@ class ExplainabilityMethods:
         
         return attributions
     
-    def _to_grayscale(self, attributions: torch.Tensor) -> np.ndarray:
+    def _to_grayscale(self, attributions: torch.Tensor, take_abs: bool = True) -> np.ndarray:
         """
         Convert attribution tensor to grayscale numpy array.
         
-        Takes the sum of absolute values across channels.
+        Args:
+            attributions: Attribution tensor from Captum
+            take_abs: If True, take absolute value (for gradient-based methods).
+                      If False, preserve sign (for perturbation-based methods).
+        
+        Returns:
+            Attribution map as numpy array (H, W)
         """
-        # Sum across channels and take absolute value
+        # Sum across channels
         attr_np = attributions.squeeze().cpu().detach().numpy()
         
         if attr_np.ndim == 3:  # (C, H, W)
-            attr_np = np.abs(attr_np).sum(axis=0)
+            if take_abs:
+                attr_np = np.abs(attr_np).sum(axis=0)
+            else:
+                # Per metodi perturbation-based: preserva il segno
+                attr_np = attr_np.sum(axis=0)
         else:  # Already (H, W)
-            attr_np = np.abs(attr_np)
+            if take_abs:
+                attr_np = np.abs(attr_np)
+            # else: mantieni attr_np così com'è (con segno)
         
         return attr_np
-
-#INFO: utilizziamo SLIC e non un semplice grid per segmentare l'immagine in superpixels
 
     def _create_segmentation_mask(self, input_tensor: torch.Tensor, n_segments: int) -> torch.Tensor:
         """
         Create a segmentation mask using SLIC superpixels.
+        
+        Uses SLIC (Simple Linear Iterative Clustering) instead of a simple grid
+        for more semantically meaningful superpixel segmentation.
         """
         # Porta su CPU e converti in numpy
         img_np = input_tensor.cpu().detach().numpy()
@@ -561,168 +567,3 @@ class ExplainabilityMethods:
         # Ritorna come tensore Long (intero) sul device corretto
         return torch.from_numpy(segments).long().to(self.device)
 
-
-def visualize_attribution(
-    input_image: np.ndarray,
-    attribution_map: np.ndarray,
-    title: str = "Attribution",
-    save_path: Optional[str] = None,
-    show: bool = True
-) -> None:
-    """
-    Visualize attribution map overlaid on the input image.
-    
-    Args:
-        input_image: Original image as numpy array (H, W, C)
-        attribution_map: Attribution map (H, W)
-        title: Plot title
-        save_path: Path to save the figure
-        show: Whether to display the figure
-    """
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    
-    # Original image
-    axes[0].imshow(input_image)
-    axes[0].set_title("Original Image")
-    axes[0].axis('off')
-    
-    # Attribution heatmap
-    im = axes[1].imshow(attribution_map, cmap='hot')
-    axes[1].set_title(f"{title} Attribution")
-    axes[1].axis('off')
-    plt.colorbar(im, ax=axes[1], fraction=0.046)
-    
-    # Overlay
-    axes[2].imshow(input_image)
-    overlay = axes[2].imshow(attribution_map, cmap='hot', alpha=0.5)
-    axes[2].set_title("Overlay")
-    axes[2].axis('off')
-    plt.colorbar(overlay, ax=axes[2], fraction=0.046)
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    
-    if show:
-        plt.show()
-    else:
-        plt.close()
-
-
-def visualize_all_methods(
-    input_image: np.ndarray,
-    attributions: Dict[str, np.ndarray],
-    part_mask: Optional[np.ndarray] = None,
-    save_path: Optional[str] = None,
-    show: bool = True
-) -> None:
-    """
-    Visualize attributions from all methods in a single figure.
-    
-    Args:
-        input_image: Original image as numpy array (H, W, C)
-        attributions: Dictionary of attribution maps
-        part_mask: Optional ground truth part mask
-        save_path: Path to save the figure
-        show: Whether to display the figure
-    """
-    n_methods = len(attributions) + (1 if part_mask is not None else 0) + 1
-    n_cols = 3
-    n_rows = (n_methods + n_cols - 1) // n_cols
-    
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
-    axes = axes.flatten()
-    
-    # Original image
-    axes[0].imshow(input_image)
-    axes[0].set_title("Original Image")
-    axes[0].axis('off')
-    
-    # Ground truth part mask if available
-    idx = 1
-    if part_mask is not None:
-        axes[idx].imshow(input_image)
-        axes[idx].imshow(part_mask, cmap='Greens', alpha=0.5)
-        axes[idx].set_title("Ground Truth Parts")
-        axes[idx].axis('off')
-        idx += 1
-    
-    # Attribution maps
-    for method_name, attr_map in attributions.items():
-        if attr_map is not None:
-            # Normalize for visualization
-            attr_norm = (attr_map - attr_map.min()) / (attr_map.max() - attr_map.min() + 1e-8)
-            
-            axes[idx].imshow(input_image)
-            im = axes[idx].imshow(attr_norm, cmap='hot', alpha=0.6)
-            axes[idx].set_title(method_name.replace('_', ' ').title())
-            axes[idx].axis('off')
-        else:
-            axes[idx].set_title(f"{method_name} (failed)")
-            axes[idx].axis('off')
-        idx += 1
-    
-    # Hide remaining axes
-    for i in range(idx, len(axes)):
-        axes[i].axis('off')
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    
-    if show:
-        plt.show()
-    else:
-        plt.close()
-
-
-if __name__ == "__main__":
-    # Test explainability methods
-    import torchvision.transforms as transforms
-    from .model import create_model
-    from .data_loader import CUB200Dataset, get_transforms
-    
-    print("Testing explainability methods...")
-    
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
-    
-    # Create a dummy model (not trained, just for testing)
-    model = create_model('resnet50', num_classes=200, pretrained=True, device=device)
-    
-    # Load a test image
-    dataset = CUB200Dataset(is_train=False, transform=get_transforms(False), load_parts=True)
-    sample = dataset[0]
-    
-    input_tensor = sample['image'].unsqueeze(0)
-    target_class = sample['label']
-    
-    print(f"Testing with class {target_class}")
-    
-    # Initialize explainability methods
-    explainer = ExplainabilityMethods(model, device)
-    
-    # Test each method
-    print("\nTesting Integrated Gradients...")
-    ig_attr = explainer.get_integrated_gradients(input_tensor, target_class)
-    print(f"  Shape: {ig_attr.shape}")
-    
-    print("\nTesting Input Gradients...")
-    input_grad_attr = explainer.get_input_gradients(input_tensor, target_class)
-    print(f"  Shape: {input_grad_attr.shape}")
-    
-    print("\nTesting Saliency...")
-    sal_attr = explainer.get_saliency(input_tensor, target_class)
-    print(f"  Shape: {sal_attr.shape}")
-    
-    print("\nTesting LIME (this may take a while)...")
-    lime_attr = explainer.get_lime(input_tensor, target_class, n_samples=100)
-    print(f"  Shape: {lime_attr.shape}")
-    
-    print("\nTesting Gradient SHAP...")
-    grad_shap_attr = explainer.get_gradient_shap(input_tensor, target_class, n_samples=50)
-    print(f"  Shape: {grad_shap_attr.shape}")
-    
-    print("\nAll tests passed!")

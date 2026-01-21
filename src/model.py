@@ -20,7 +20,7 @@ class CUB200Classifier(nn.Module):
         self,
         num_classes: int = 200,
         pretrained: bool = True,
-        freeze_backbone: bool = False #INFO: add option to freeze backbone
+        freeze_backbone: bool = False
     ):
         """
         Initialize the classifier.
@@ -109,28 +109,39 @@ def load_model(
     num_classes: int = 200,
     device: Optional[torch.device] = None
 ) -> nn.Module:
-    """Load model from checkpoint."""
+    """
+    Load model from checkpoint.
+    
+    Args:
+        path: Path to the model checkpoint (.pth)
+        num_classes: Number of output classes
+        device: Device to load the model on
+        
+    Returns:
+        Loaded model ready for inference
+    """
+    print(f"Caricamento del modello da: {path}")
+    
     model = create_model(num_classes=num_classes, pretrained=False)
     
     checkpoint = torch.load(path, map_location=device)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    
+    # Handle different checkpoint formats
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        model.load_state_dict(checkpoint['model_state_dict'])
+        if 'epoch' in checkpoint:
+            print(f"Modello addestrato per {checkpoint['epoch']} epoche")
+        if 'best_acc' in checkpoint:
+            print(f"Best accuracy durante il training: {checkpoint['best_acc']:.2f}%")
+        elif 'accuracy' in checkpoint:
+            print(f"Accuracy: {checkpoint['accuracy']:.2f}%")
+    else:
+        # Assume checkpoint is directly the state_dict
+        model.load_state_dict(checkpoint)
     
     if device is not None:
         model = model.to(device)
     
-    print(f"Model loaded from {path}, accuracy: {checkpoint.get('accuracy', 'N/A')}")
+    model.eval()
+    print("Modello caricato con successo!\n")
     return model
-
-
-if __name__ == "__main__":
-    # Test model creation
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
-    
-    model = create_model(num_classes=200, pretrained=True, device=device)
-    print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
-    
-    # Test forward pass
-    x = torch.randn(2, 3, 224, 224).to(device)
-    output = model(x)
-    print(f"Output shape: {output.shape}")

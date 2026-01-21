@@ -6,7 +6,7 @@ Compares model explanations with ground-truth part annotations.
 import numpy as np
 import torch
 from typing import Dict, List, Tuple, Optional
-from scipy.stats import spearmanr, pearsonr
+from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score, average_precision_score
 import pandas as pd
 from tqdm import tqdm
@@ -709,61 +709,3 @@ class SanityCheckEvaluator:
                     })
         
         return pd.DataFrame(rows)
-
-
-if __name__ == "__main__":
-    # Test metrics
-    print("Testing plausibility metrics...")
-    
-    # Create dummy data
-    np.random.seed(42)
-    
-    # Attribution map - center has high values
-    attr_map = np.zeros((224, 224))
-    attr_map[80:140, 80:140] = np.random.rand(60, 60)
-    
-    # Ground truth mask - overlaps with attribution
-    gt_mask = np.zeros((224, 224))
-    gt_mask[100:160, 100:160] = 1.0
-    
-    # Test all metrics
-    metrics = compute_all_metrics(attr_map, gt_mask)
-    
-    print("\nMetrics:")
-    for name, value in metrics.items():
-        print(f"  {name}: {value:.4f}")
-    
-    # Test with perfect overlap
-    print("\nPerfect overlap case:")
-    perfect_attr = gt_mask.copy()
-    perfect_metrics = compute_all_metrics(perfect_attr, gt_mask)
-    for name, value in perfect_metrics.items():
-        print(f"  {name}: {value:.4f}")
-    
-    # Test sanity check
-    print("Testing sanity check...")
-    
-    # Dummy model and explainer (replace with actual instances)
-    class DummyModel(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.conv = torch.nn.Conv2d(3, 3, 3, padding=1)
-        
-        def forward(self, x):
-            return self.conv(x)
-    
-    class DummyExplainer:
-        def get_all_attributions(self, input_tensor, target_class, methods):
-            # Dummy implementation: random attributions
-            return {method: np.random.rand(*input_tensor.shape[2:]) for method in methods}
-    
-    model = DummyModel()
-    explainer = DummyExplainer()
-    
-    # Dummy input tensor (1 image, 3 channels, 224x224)
-    input_tensor = torch.rand(1, 3, 224, 224)
-    target_class = 1  # Arbitrary class
-    
-    # Run sanity check
-    sanity_results = sanity_check_explanations(model, explainer, input_tensor, target_class)
-    print_sanity_check_results(sanity_results)

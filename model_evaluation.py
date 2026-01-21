@@ -25,48 +25,8 @@ from src.config import (
     IMAGENET_STD,
     NUM_CLASSES
 )
-from src.model import create_model
+from src.model import create_model, load_model
 from src.data_loader import CUB200Dataset, load_class_names
-
-
-def load_model(model_path: str, device: torch.device) -> nn.Module:
-    """
-    Carica il modello ResNet50 salvato.
-    
-    Args:
-        model_path: Path al file del modello (.pth)
-        device: Device su cui caricare il modello
-        
-    Returns:
-        Modello caricato e pronto per l'inference
-    """
-    print(f"Caricamento del modello da: {model_path}")
-    
-    # Crea l'architettura del modello
-    model = create_model(
-        num_classes=NUM_CLASSES,
-        pretrained=False,  # Non serve il pretrained perché carichiamo i pesi salvati
-        device=device
-    )
-    
-    # Carica i pesi salvati
-    checkpoint = torch.load(model_path, map_location=device)
-    
-    # Se il checkpoint contiene un dizionario con 'model_state_dict'
-    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['model_state_dict'])
-        if 'epoch' in checkpoint:
-            print(f"Modello addestrato per {checkpoint['epoch']} epoche")
-        if 'best_acc' in checkpoint:
-            print(f"Best accuracy durante il training: {checkpoint['best_acc']:.2f}%")
-    else:
-        # Altrimenti assume che il checkpoint sia direttamente lo state_dict
-        model.load_state_dict(checkpoint)
-    
-    model.eval()
-    print("Modello caricato con successo!\n")
-    
-    return model
 
 
 def evaluate_model(
