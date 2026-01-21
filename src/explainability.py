@@ -23,7 +23,7 @@ from captum.attr import (
     LayerAttribution
 )
 from captum.attr._utils.visualization import visualize_image_attr
-from captum._utils.models.linear_model import SkLearnRidge
+from captum._utils.models.linear_model import SkLearnRidge #TODO: non viene utilizzato  
 from skimage.segmentation import slic
 import matplotlib.pyplot as plt
 
@@ -358,7 +358,7 @@ class ExplainabilityMethods:
         n_steps: int = 50,
         baselines: Optional[torch.Tensor] = None,
         nt_type: str = 'smoothgrad',
-        nt_samples: int = 10,
+        nt_samples: int = 10,   
         stdevs: float = 0.15
     ) -> np.ndarray:
         """
