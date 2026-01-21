@@ -37,7 +37,6 @@ def denormalize_image(tensor: torch.Tensor) -> np.ndarray:
 
 def run_evaluation(
     model_path: str = None,
-    model_type: str = 'resnet50',
     num_samples: int = 100,
     methods: List[str] = None,
     save_visualizations: bool = True,
@@ -48,7 +47,6 @@ def run_evaluation(
     
     Args:
         model_path: Path to trained model checkpoint
-        model_type: Type of model architecture
         num_samples: Number of test images to evaluate
         methods: List of explainability methods to use
         save_visualizations: Whether to save visualization images
@@ -70,10 +68,10 @@ def run_evaluation(
     # Load model
     print("\nLoading model...")
     if model_path and os.path.exists(model_path):
-        model = load_model(model_path, model_type=model_type, num_classes=config.NUM_CLASSES, device=device)
+        model = load_model(model_path, num_classes=config.NUM_CLASSES, device=device)
     else:
         print("No trained model found. Using pretrained model for demonstration.")
-        model = create_model(model_type=model_type, num_classes=config.NUM_CLASSES, pretrained=True, device=device)
+        model = create_model(num_classes=config.NUM_CLASSES, pretrained=True, device=device)
     
     model.eval()
     
@@ -317,7 +315,6 @@ def create_visualizations(evaluator: PlausibilityEvaluator) -> None:
 def main():
     parser = argparse.ArgumentParser(description='Evaluate explainability methods on CUB-200-2011')
     parser.add_argument('--model_path', type=str, default=None, help='Path to trained model')
-    parser.add_argument('--model_type', type=str, default='resnet50', choices=['resnet50', 'vgg16'])
     parser.add_argument('--num_samples', type=int, default=100, help='Number of test samples to evaluate')
     parser.add_argument('--methods', nargs='+', default=None, help='Explainability methods to use')
     parser.add_argument('--no_visualizations', action='store_true', help='Skip saving visualizations')
@@ -328,7 +325,6 @@ def main():
     # Run evaluation
     summary_df, evaluator = run_evaluation(
         model_path=args.model_path,
-        model_type=args.model_type,
         num_samples=args.num_samples,
         methods=args.methods,
         save_visualizations=not args.no_visualizations,

@@ -18,12 +18,11 @@ from captum.attr import (
     KernelShap,
     GradientShap,
     Occlusion,
-    NoiseTunnel, #TODO: non viene utilizzato, "wrapper" che prende un metodo (es. Integrated Gradients), aggiunge rumore all'immagine più volte, calcola le spiegazioni e ne fa la media.
+    NoiseTunnel,
     LayerGradCam,
     LayerAttribution
 )
 from captum.attr._utils.visualization import visualize_image_attr
-from captum._utils.models.linear_model import SkLearnRidge #TODO: non viene utilizzato  
 from skimage.segmentation import slic
 import matplotlib.pyplot as plt
 
@@ -89,6 +88,7 @@ class ExplainabilityMethods:
         Returns:
             Attribution map as numpy array (H, W)
         """
+        assert input_tensor.shape[0] == 1, "Attribution methods work on single images only (batch_size=1)"
         input_tensor = input_tensor.to(self.device)
         input_tensor.requires_grad = True
         
@@ -125,6 +125,7 @@ class ExplainabilityMethods:
         Returns:
             Attribution map as numpy array (H, W)
         """
+        assert input_tensor.shape[0] == 1, "Attribution methods work on single images only (batch_size=1)"
         input_tensor = input_tensor.to(self.device)
         input_tensor.requires_grad = True
         
@@ -136,7 +137,6 @@ class ExplainabilityMethods:
         attr_map = self._to_grayscale(attributions)
         return attr_map
     
-#TODO: comprendere se va rimosso dato che non è richiesto
 
     def get_saliency(
         self,
@@ -157,6 +157,7 @@ class ExplainabilityMethods:
         Returns:
             Attribution map as numpy array (H, W)
         """
+        assert input_tensor.shape[0] == 1, "Attribution methods work on single images only (batch_size=1)"
         input_tensor = input_tensor.to(self.device)
         input_tensor.requires_grad = True
         
@@ -193,6 +194,7 @@ class ExplainabilityMethods:
         Returns:
             Attribution map as numpy array (H, W)
         """
+        assert input_tensor.shape[0] == 1, "Attribution methods work on single images only (batch_size=1)"
         input_tensor = input_tensor.to(self.device)
         
         # Create feature mask using SLIC if not provided
@@ -245,6 +247,7 @@ class ExplainabilityMethods:
         Returns:
             Attribution map as numpy array (H, W)
         """
+        assert input_tensor.shape[0] == 1, "Attribution methods work on single images only (batch_size=1)"
         input_tensor = input_tensor.to(self.device)
         
         if baselines is None:
@@ -299,6 +302,7 @@ class ExplainabilityMethods:
         Returns:
             Attribution map as numpy array (H, W)
         """
+        assert input_tensor.shape[0] == 1, "Attribution methods work on single images only (batch_size=1)"
         input_tensor = input_tensor.to(self.device)
         
         attributions = self.occlusion.attribute(
@@ -334,6 +338,7 @@ class ExplainabilityMethods:
         Returns:
             Attribution map as numpy array (H, W)
         """
+        assert input_tensor.shape[0] == 1, "Attribution methods work on single images only (batch_size=1)"
         input_tensor = input_tensor.to(self.device)
         
         if baselines is None:
@@ -379,6 +384,7 @@ class ExplainabilityMethods:
         Returns:
             Attribution map as numpy array (H, W)
         """
+        assert input_tensor.shape[0] == 1, "Attribution methods work on single images only (batch_size=1)"
         input_tensor = input_tensor.to(self.device)
         input_tensor.requires_grad = True
         
@@ -425,6 +431,7 @@ class ExplainabilityMethods:
         Returns:
             Attribution map as numpy array (H, W)
         """
+        assert input_tensor.shape[0] == 1, "Attribution methods work on single images only (batch_size=1)"
         input_tensor = input_tensor.to(self.device)
         input_tensor.requires_grad = True
         
@@ -553,16 +560,6 @@ class ExplainabilityMethods:
         
         # Ritorna come tensore Long (intero) sul device corretto
         return torch.from_numpy(segments).long().to(self.device)
-    
-    def normalize_attribution(self, attr_map: np.ndarray) -> np.ndarray:
-        """Normalize attribution map to [0, 1] range."""
-        attr_min = attr_map.min()
-        attr_max = attr_map.max()
-        
-        if attr_max - attr_min > 1e-8:
-            return (attr_map - attr_min) / (attr_max - attr_min)
-        else:
-            return np.zeros_like(attr_map)
 
 
 def visualize_attribution(

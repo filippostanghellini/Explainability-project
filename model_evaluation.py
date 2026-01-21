@@ -44,7 +44,6 @@ def load_model(model_path: str, device: torch.device) -> nn.Module:
     
     # Crea l'architettura del modello
     model = create_model(
-        model_type='resnet50',
         num_classes=NUM_CLASSES,
         pretrained=False,  # Non serve il pretrained perché carichiamo i pesi salvati
         device=device

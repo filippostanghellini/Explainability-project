@@ -64,42 +64,16 @@ class CUB200Classifier(nn.Module):
         return features.flatten(1)
 
 
-class CUB200ClassifierVGG(nn.Module):
-    """
-    Alternative CNN classifier using VGG-16.
-    Provides different architecture for comparison.
-    """
-    
-    def __init__(
-        self,
-        num_classes: int = 200,
-        pretrained: bool = True
-    ):
-        super(CUB200ClassifierVGG, self).__init__()
-        
-        weights = models.VGG16_Weights.IMAGENET1K_V1 if pretrained else None
-        self.backbone = models.vgg16(weights=weights)
-        
-        # Modify classifier
-        self.backbone.classifier[-1] = nn.Linear(4096, num_classes)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.backbone(x)
-
-#INFO: define de model here
-
 def create_model(
-    model_type: str = 'resnet50',
     num_classes: int = 200,
     pretrained: bool = True,
     device: Optional[torch.device] = None,
     freeze_backbone: bool = False,
 ) -> nn.Module:
     """
-    Factory function to create models.
+    Factory function to create the ResNet-50 model.
     
     Args:
-        model_type: 'resnet50' or 'vgg16'
         num_classes: Number of output classes
         pretrained: Use pretrained weights
         device: Device to place model on
@@ -108,12 +82,7 @@ def create_model(
     Returns:
         Initialized model
     """
-    if model_type == 'resnet50':
-        model = CUB200Classifier(num_classes=num_classes, pretrained=pretrained)
-    elif model_type == 'vgg16':
-        model = CUB200ClassifierVGG(num_classes=num_classes, pretrained=pretrained)
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
+    model = CUB200Classifier(num_classes=num_classes, pretrained=pretrained, freeze_backbone=freeze_backbone)
     
     if device is not None:
         model = model.to(device)
@@ -137,12 +106,11 @@ def save_model(model: nn.Module, path: str, optimizer=None, epoch: int = 0, accu
 
 def load_model(
     path: str,
-    model_type: str = 'resnet50',
     num_classes: int = 200,
     device: Optional[torch.device] = None
 ) -> nn.Module:
     """Load model from checkpoint."""
-    model = create_model(model_type=model_type, num_classes=num_classes, pretrained=False)
+    model = create_model(num_classes=num_classes, pretrained=False)
     
     checkpoint = torch.load(path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -159,7 +127,7 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
-    model = create_model('resnet50', num_classes=200, pretrained=True, device=device)
+    model = create_model(num_classes=200, pretrained=True, device=device)
     print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
     
     # Test forward pass
