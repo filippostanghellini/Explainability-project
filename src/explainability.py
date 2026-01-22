@@ -206,7 +206,7 @@ class ExplainabilityMethods:
             target=target_class,
             feature_mask=feature_mask,
             n_samples=n_samples,
-            perturbations_per_eval=min(16, n_samples),
+            perturbations_per_eval=min(16, n_samples), #TODO: test with 125 or 256 using GPU
             show_progress=False
         )
         
@@ -264,7 +264,7 @@ class ExplainabilityMethods:
             target=target_class,
             feature_mask=feature_mask,
             n_samples=n_samples,
-            perturbations_per_eval=min(16, n_samples),
+            perturbations_per_eval=min(16, n_samples), #TODO: test with 125 or 256 using GPU
             show_progress=False
         )
         
