@@ -181,97 +181,10 @@ def compute_auc_roc(
         return 0.5
 
 
-def compute_spearman_correlation(
-    attribution_map: np.ndarray,
-    part_mask: np.ndarray
-) -> float:
-    """
-    Compute Spearman rank correlation between attribution and mask.
-    
-    Args:
-        attribution_map: Attribution map (H, W)
-        part_mask: Binary ground truth mask (H, W)
-        
-    Returns:
-        Spearman correlation coefficient
-    """
-    attr_flat = attribution_map.flatten()
-    mask_flat = part_mask.flatten()
-    
-    try:
-        corr, _ = spearmanr(attr_flat, mask_flat)
-        return corr if not np.isnan(corr) else 0.0
-    except:
-        return 0.0
 
 
-def compute_mass_accuracy(
-    attribution_map: np.ndarray,
-    part_mask: np.ndarray,
-    top_k_percent: float = 10.0
-) -> float:
-    """
-    Compute Mass Accuracy - fraction of top-k% attribution inside GT region.
-    
-    Args:
-        attribution_map: Attribution map (H, W)
-        part_mask: Binary ground truth mask (H, W)
-        top_k_percent: Percentage of top pixels to consider
-        
-    Returns:
-        Mass accuracy score
-    """
-    # Normalize and get top-k threshold
-    attr_norm = normalize_attribution(attribution_map)
-    threshold = np.percentile(attr_norm.flatten(), 100 - top_k_percent)
-    
-    # Get indices of top-k pixels
-    top_k_mask = attr_norm >= threshold
-    
-    # Count how many are in GT region
-    top_k_in_gt = (top_k_mask * part_mask).sum()
-    top_k_total = top_k_mask.sum()
-    
-    if top_k_total == 0:
-        return 0.0
-    
-    return top_k_in_gt / top_k_total
 
 
-def compute_relevance_rank_accuracy(
-    attribution_map: np.ndarray,
-    part_mask: np.ndarray,
-    top_k_percent: float = 10.0
-) -> float:
-    """
-    Compute Relevance Rank Accuracy.
-    
-    Measures whether high-attribution pixels tend to be in GT regions.
-    
-    Args:
-        attribution_map: Attribution map (H, W)
-        part_mask: Binary ground truth mask (H, W)
-        top_k_percent: Percentage of top pixels to consider
-        
-    Returns:
-        Relevance rank accuracy
-    """
-    attr_flat = attribution_map.flatten()
-    mask_flat = part_mask.flatten()
-    
-    # Get number of GT pixels
-    n_gt = int(mask_flat.sum())
-    if n_gt == 0:
-        return 0.0
-    
-    # Get indices sorted by attribution (descending)
-    sorted_indices = np.argsort(attr_flat)[::-1]
-    
-    # Count how many of top-n_gt are in GT
-    top_n_indices = sorted_indices[:n_gt]
-    hits = mask_flat[top_n_indices].sum()
-    
-    return hits / n_gt
 
 
 def compute_all_metrics(
@@ -300,13 +213,10 @@ def compute_all_metrics(
     metrics['ebpg'] = compute_energy_based_pointing_game(attribution_map, part_mask)
     metrics['auc_roc'] = compute_auc_roc(attribution_map, part_mask)
     metrics['average_precision'] = compute_average_precision(attribution_map, part_mask)
-    metrics['spearman_correlation'] = compute_spearman_correlation(attribution_map, part_mask)
-    metrics['relevance_rank_accuracy'] = compute_relevance_rank_accuracy(attribution_map, part_mask)
     
     # Threshold-dependent metrics
     for k in top_k_percentages:
         metrics[f'iou_top{k}'] = compute_iou_at_threshold(attribution_map, part_mask, k)
-        metrics[f'mass_accuracy_top{k}'] = compute_mass_accuracy(attribution_map, part_mask, k)
     
     return metrics
 
@@ -709,3 +619,120 @@ class SanityCheckEvaluator:
                     })
         
         return pd.DataFrame(rows)
+
+
+def cascade_randomization_test(
+    model: torch.nn.Module,
+    explainer,
+    input_tensor: torch.Tensor,
+    target_class: int,
+    methods: List[str] = None,
+    n_random_seeds: int = 3
+) -> Dict[str, Dict[str, List[float]]]:
+    """
+    Cascade randomization test (Adebayo et al., 2018).
+    
+    Progressively randomizes layers from top (logit) to bottom (input),
+    measuring how explanations change. A faithful method should show
+    decreasing correlation as higher layers are randomized.
+    
+    This tests whether the explanation method is sensitive to the learned
+    parameters at different depths of the network.
+    
+    Args:
+        model: Trained PyTorch model (ResNet-50)
+        explainer: ExplainabilityMethods instance
+        input_tensor: Input image tensor (1, C, H, W)
+        target_class: Target class for attribution
+        methods: List of explanation methods to test
+        n_random_seeds: Number of random seeds per layer configuration
+        
+    Returns:
+        Dictionary: {method: {layer_name: [correlations]}}
+    """
+    if methods is None:
+        methods = config.EXPLAINABILITY_METHODS
+    
+    device = next(model.parameters()).device
+    
+    # Save original state
+    original_state = {name: param.clone() for name, param in model.named_parameters()}
+    
+    # Get original attributions with fully trained model
+    print("Computing attributions with original trained model...")
+    original_attrs = explainer.get_all_attributions(input_tensor, target_class, methods)
+    
+    # Define layer groups for ResNet-50 (from logit to input)
+    # We'll randomize progressively: fc -> layer4 -> layer3 -> layer2 -> layer1 -> conv1
+    layer_groups = [
+        ('logit', ['fc']),
+        ('layer4', ['layer4']),
+        ('layer3', ['layer3']),
+        ('layer2', ['layer2']),
+        ('layer1', ['layer1']),
+        ('conv1', ['conv1', 'bn1'])
+    ]
+    
+    # Store results: {method: {layer_stage: [correlations]}}
+    results = {method: {} for method in methods}
+    
+    # Cumulative randomization: each stage includes previous stages
+    randomized_layers = []
+    
+    for stage_name, layer_names in layer_groups:
+        randomized_layers.extend(layer_names)
+        
+        print(f"\nRandomizing up to {stage_name} (layers: {', '.join(randomized_layers)})")
+        
+        # Initialize correlation storage for this stage
+        for method in methods:
+            results[method][stage_name] = []
+        
+        # Run multiple seeds for robustness
+        for seed in range(n_random_seeds):
+            # Restore original weights
+            with torch.no_grad():
+                for name, param in model.named_parameters():
+                    if name in original_state:
+                        param.copy_(original_state[name])
+            
+            # Randomize specific layers
+            torch.manual_seed(seed)
+            with torch.no_grad():
+                for name, param in model.named_parameters():
+                    # Check if this parameter belongs to a layer we want to randomize
+                    should_randomize = any(layer in name for layer in randomized_layers)
+                    
+                    if should_randomize:
+                        if len(param.shape) > 1:  # Weights
+                            torch.nn.init.kaiming_uniform_(param, a=0, mode='fan_in', nonlinearity='relu')
+                        else:  # Biases
+                            torch.nn.init.uniform_(param, 0, 1)
+            
+            # Compute attributions with partially randomized model
+            try:
+                random_attrs = explainer.get_all_attributions(input_tensor, target_class, methods)
+                
+                # Compute correlation for each method
+                for method in methods:
+                    if original_attrs[method] is not None and random_attrs[method] is not None:
+                        orig_flat = original_attrs[method].flatten()
+                        rand_flat = random_attrs[method].flatten()
+                        
+                        try:
+                            corr, _ = spearmanr(orig_flat, rand_flat)
+                            corr = corr if not np.isnan(corr) else 0.0
+                        except:
+                            corr = 0.0
+                        
+                        results[method][stage_name].append(corr)
+            except Exception as e:
+                print(f"  Error at {stage_name}, seed {seed}: {e}")
+    
+    # Restore original weights
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            if name in original_state:
+                param.copy_(original_state[name])
+    
+    return results

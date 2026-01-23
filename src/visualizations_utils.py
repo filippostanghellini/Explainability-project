@@ -1,6 +1,17 @@
 """
 Visualization utilities for explainability analysis.
-Creates publication-ready figures and visual comparisons.
+Creates publication-ready figures following XAI literature best practices.
+
+Based on:
+- Adebayo et al. (2018): Sanity Checks for Saliency Maps
+- Samek et al. (2016): Evaluating the visualization of what a DNN has learned
+- Zhang et al.: Pointing Game and EBPG metrics
+- Montavon et al. (2019): Layer-wise relevance propagation
+
+All visualizations use:
+- Color-blind friendly palettes (Okabe-Ito)
+- High DPI for publication quality
+- Consistent styling across all figures
 """
 
 import numpy as np
@@ -17,19 +28,93 @@ import torch.nn.functional as F
 from . import config
 
 
-def setup_style():
-    """Set up matplotlib style for publication-quality figures."""
+def setup_style(style: str = 'publication', dpi: int = 150):
+    """
+    Set up matplotlib style for publication-quality figures.
+    
+    Args:
+        style: 'publication' for journal-ready figures, 'presentation' for larger fonts
+        dpi: DPI for saved figures (default 150, use 300+ for publication)
+    """
     plt.style.use('seaborn-v0_8-whitegrid')
-    plt.rcParams.update({
-        'font.size': 11,
-        'axes.titlesize': 12,
-        'axes.labelsize': 11,
-        'xtick.labelsize': 10,
-        'ytick.labelsize': 10,
-        'legend.fontsize': 10,
-        'figure.titlesize': 14
-    })
+    
+    # Color-blind friendly color cycle (based on Okabe-Ito palette)
+    colorblind_colors = [
+        '#0077BB',  # Blue
+        '#EE7733',  # Orange
+        '#009988',  # Teal
+        '#CC3311',  # Red
+        '#33BBEE',  # Cyan
+        '#EE3377',  # Magenta
+        '#BBBBBB',  # Grey
+        '#000000',  # Black
+    ]
+    
+    base_settings = {
+        'figure.dpi': dpi,
+        'savefig.dpi': dpi,
+        'savefig.bbox': 'tight',
+        'savefig.pad_inches': 0.1,
+        'axes.prop_cycle': plt.cycler(color=colorblind_colors),
+        'axes.spines.top': False,
+        'axes.spines.right': False,
+        'axes.grid': True,
+        'grid.alpha': 0.3,
+        'grid.linestyle': '--',
+        'font.family': 'sans-serif',
+        'font.sans-serif': ['DejaVu Sans', 'Arial', 'Helvetica', 'sans-serif'],
+        'image.cmap': 'viridis',  # Color-blind friendly default
+    }
+    
+    if style == 'publication':
+        base_settings.update({
+            'font.size': 10,
+            'axes.titlesize': 11,
+            'axes.labelsize': 10,
+            'xtick.labelsize': 9,
+            'ytick.labelsize': 9,
+            'legend.fontsize': 9,
+            'figure.titlesize': 12,
+            'lines.linewidth': 1.5,
+            'axes.linewidth': 0.8,
+        })
+    elif style == 'presentation':
+        base_settings.update({
+            'font.size': 14,
+            'axes.titlesize': 16,
+            'axes.labelsize': 14,
+            'xtick.labelsize': 12,
+            'ytick.labelsize': 12,
+            'legend.fontsize': 12,
+            'figure.titlesize': 18,
+            'lines.linewidth': 2.5,
+            'axes.linewidth': 1.2,
+        })
+    else:  # default
+        base_settings.update({
+            'font.size': 11,
+            'axes.titlesize': 12,
+            'axes.labelsize': 11,
+            'xtick.labelsize': 10,
+            'ytick.labelsize': 10,
+            'legend.fontsize': 10,
+            'figure.titlesize': 14,
+        })
+    
+    plt.rcParams.update(base_settings)
 
+
+# Color-blind friendly colormaps for attributions (Okabe-Ito palette)
+SEQUENTIAL_CMAP = 'inferno'  # Better than 'hot' for colorblind accessibility
+DIVERGENT_CMAP = 'RdBu_r'    # Red-Blue divergent (still accessible)
+
+# Methods that preserve sign (use divergent colormap)
+DIVERGENT_METHODS = {'lime', 'kernel_shap'}
+
+
+# =============================================================================
+# CORE VISUALIZATION FUNCTIONS - XAI Literature Best Practices
+# =============================================================================
 
 def denormalize_image(tensor: torch.Tensor) -> np.ndarray:
     """Convert normalized tensor back to displayable image."""
@@ -41,91 +126,6 @@ def denormalize_image(tensor: torch.Tensor) -> np.ndarray:
     img = img.permute(1, 2, 0).numpy()
     
     return img
-
-
-# Metodi che usano colormap divergente (preservano il segno)
-# gradient_shap usa cmap="hot" con valore assoluto per migliore visualizzazione
-DIVERGENT_METHODS = {'lime', 'kernel_shap'}
-
-
-def visualize_attribution(
-    input_image: np.ndarray,
-    attribution_map: np.ndarray,
-    method_name: str = "Attribution",
-    title: str = None,
-    save_path: Optional[str] = None,
-    show: bool = True
-) -> None:
-    """
-    Visualize attribution map overlaid on the input image.
-    
-    Uses divergent colormap (RdBu_r) for perturbation-based methods (LIME, SHAP)
-    and sequential colormap (hot) for gradient-based methods.
-    
-    Args:
-        input_image: Original image as numpy array (H, W, C)
-        attribution_map: Attribution map (H, W)
-        method_name: Name of the method (used to determine colormap)
-        title: Plot title (defaults to method_name if not provided)
-        save_path: Path to save the figure
-        show: Whether to display the figure
-    """
-    if title is None:
-        title = method_name
-        
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    
-    # Original image
-    axes[0].imshow(input_image)
-    axes[0].set_title("Original Image")
-    axes[0].axis('off')
-    
-    # Determine colormap based on method type
-    if method_name.lower() in DIVERGENT_METHODS:
-        # Perturbation-based: divergent colormap centered at 0
-        vmax = np.abs(attribution_map).max()
-        vmin = -vmax
-        cmap = 'RdBu_r'
-        
-        # Attribution heatmap
-        im = axes[1].imshow(attribution_map, cmap=cmap, vmin=vmin, vmax=vmax)
-        axes[1].set_title(f"{title} Attribution")
-        axes[1].axis('off')
-        plt.colorbar(im, ax=axes[1], fraction=0.046)
-        
-        # Overlay
-        axes[2].imshow(input_image)
-        overlay = axes[2].imshow(attribution_map, cmap=cmap, alpha=0.6, vmin=vmin, vmax=vmax)
-        axes[2].set_title("Overlay")
-        axes[2].axis('off')
-        plt.colorbar(overlay, ax=axes[2], fraction=0.046)
-    else:
-        # Gradient-based: sequential colormap
-        attr_norm = (attribution_map - attribution_map.min()) / (attribution_map.max() - attribution_map.min() + 1e-8)
-        cmap = 'hot'
-        
-        # Attribution heatmap
-        im = axes[1].imshow(attr_norm, cmap=cmap)
-        axes[1].set_title(f"{title} Attribution")
-        axes[1].axis('off')
-        plt.colorbar(im, ax=axes[1], fraction=0.046)
-        
-        # Overlay
-        axes[2].imshow(input_image)
-        overlay = axes[2].imshow(attr_norm, cmap=cmap, alpha=0.5)
-        axes[2].set_title("Overlay")
-        axes[2].axis('off')
-        plt.colorbar(overlay, ax=axes[2], fraction=0.046)
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    
-    if show:
-        plt.show()
-    else:
-        plt.close()
 
 
 def visualize_all_methods(
@@ -172,24 +172,26 @@ def visualize_all_methods(
     # Attribution maps
     for method_name, attr_map in attributions.items():
         if attr_map is not None:
-            # Scegli colormap in base al tipo di metodo
+            # Choose colormap based on method type
             if method_name in DIVERGENT_METHODS:
-                # Perturbation-based: colormap divergente centrata su 0
-                # Rosso = aumenta probabilità, Blu = diminuisce
-                vmax = np.abs(attr_map).max()
-                vmin = -vmax  # Simmetrico attorno a 0
-                cmap = 'RdBu_r'  # Red (positive) - White (zero) - Blue (negative)
+                # Perturbation-based: divergent colormap centered on 0
+                # Red = increases probability, Blue = decreases probability
+                # Do NOT take absolute value - preserve sign!
+                vmax = max(abs(attr_map.min()), abs(attr_map.max()))
+                vmin = -vmax  # Symmetric around 0
+                cmap = DIVERGENT_CMAP  # 'RdBu_r': Red (positive) - White (zero) - Blue (negative)
                 
                 axes[idx].imshow(input_image)
                 im = axes[idx].imshow(attr_map, cmap=cmap, alpha=0.7, vmin=vmin, vmax=vmax)
                 plt.colorbar(im, ax=axes[idx], fraction=0.046, pad=0.04)
             else:
-                # Gradient-based: colormap sequenziale (già in valore assoluto)
+                # Gradient-based: sequential colormap (already absolute value)
                 attr_norm = (attr_map - attr_map.min()) / (attr_map.max() - attr_map.min() + 1e-8)
-                cmap = 'hot'
+                cmap = SEQUENTIAL_CMAP  # 'inferno'
                 
                 axes[idx].imshow(input_image)
                 im = axes[idx].imshow(attr_norm, cmap=cmap, alpha=0.6)
+                plt.colorbar(im, ax=axes[idx], fraction=0.046, pad=0.04)
             
             axes[idx].set_title(method_name.replace('_', ' ').title())
             axes[idx].axis('off')
@@ -213,106 +215,6 @@ def visualize_all_methods(
         plt.close()
 
 
-def create_comparison_figure(
-    image: np.ndarray,
-    attributions: Dict[str, np.ndarray],
-    part_mask: np.ndarray,
-    class_name: str = "",
-    predicted_class: str = "",
-    save_path: Optional[str] = None,
-    figsize: Tuple[int, int] = (16, 8)
-) -> None:
-    """
-    Create a comprehensive comparison figure showing all methods.
-    
-    Args:
-        image: Original image (H, W, C)
-        attributions: Dictionary of attribution maps
-        part_mask: Ground truth part mask
-        class_name: True class name
-        predicted_class: Predicted class name
-        save_path: Path to save figure
-        figsize: Figure size
-    """
-    setup_style()
-    
-    n_methods = len(attributions)
-    n_cols = n_methods + 2  # +2 for original and ground truth
-    
-    fig, axes = plt.subplots(2, n_cols, figsize=figsize)
-    
-    # Title
-    title = f"Explainability Comparison"
-    if class_name:
-        title += f"\nTrue: {class_name}"
-    if predicted_class:
-        title += f" | Predicted: {predicted_class}"
-    fig.suptitle(title, fontsize=14, y=1.02)
-    
-    # Row 1: Raw visualizations
-    # Original image
-    axes[0, 0].imshow(image)
-    axes[0, 0].set_title("Original Image")
-    axes[0, 0].axis('off')
-    
-    # Ground truth parts
-    axes[0, 1].imshow(part_mask, cmap='Greens')
-    axes[0, 1].set_title("Ground Truth Parts")
-    axes[0, 1].axis('off')
-    
-    # Attribution heatmaps
-    for idx, (method_name, attr_map) in enumerate(attributions.items()):
-        ax = axes[0, idx + 2]
-        if attr_map is not None:
-            if method_name in DIVERGENT_METHODS:
-                # Perturbation-based: colormap divergente centrata su 0
-                vmax = np.abs(attr_map).max()
-                vmin = -vmax
-                im = ax.imshow(attr_map, cmap='RdBu_r', vmin=vmin, vmax=vmax)
-            else:
-                # Gradient-based: colormap sequenziale
-                attr_norm = (attr_map - attr_map.min()) / (attr_map.max() - attr_map.min() + 1e-8)
-                im = ax.imshow(attr_norm, cmap='hot')
-            ax.set_title(method_name.replace('_', ' ').title())
-        else:
-            ax.set_title(f"{method_name}\n(failed)")
-        ax.axis('off')
-    
-    # Row 2: Overlays
-    axes[1, 0].imshow(image)
-    axes[1, 0].set_title("Original")
-    axes[1, 0].axis('off')
-    
-    axes[1, 1].imshow(image)
-    axes[1, 1].imshow(part_mask, cmap='Greens', alpha=0.5)
-    axes[1, 1].set_title("GT Overlay")
-    axes[1, 1].axis('off')
-    
-    for idx, (method_name, attr_map) in enumerate(attributions.items()):
-        ax = axes[1, idx + 2]
-        ax.imshow(image)
-        if attr_map is not None:
-            if method_name in DIVERGENT_METHODS:
-                # Perturbation-based: colormap divergente
-                vmax = np.abs(attr_map).max()
-                vmin = -vmax
-                ax.imshow(attr_map, cmap='RdBu_r', alpha=0.6, vmin=vmin, vmax=vmax)
-            else:
-                # Gradient-based: colormap sequenziale
-                attr_norm = (attr_map - attr_map.min()) / (attr_map.max() - attr_map.min() + 1e-8)
-                ax.imshow(attr_norm, cmap='hot', alpha=0.5)
-        ax.set_title(f"{method_name.replace('_', ' ').title()} Overlay")
-        ax.axis('off')
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        plt.close()
-    else:
-        plt.show()
-
-
 def create_metrics_radar_chart(
     summary_df: pd.DataFrame,
     metrics: List[str] = None,
@@ -329,7 +231,7 @@ def create_metrics_radar_chart(
     setup_style()
     
     if metrics is None:
-        metrics = ['pointing_game', 'ebpg', 'auc_roc', 'average_precision', 'spearman_correlation']
+        metrics = ['pointing_game', 'ebpg', 'auc_roc', 'average_precision']
     
     # Get mean columns
     mean_cols = [f'{m}_mean' for m in metrics]
@@ -366,349 +268,6 @@ def create_metrics_radar_chart(
     ax.set_ylim(0, 1)
     ax.set_title("Method Comparison Across Metrics", size=14, y=1.1)
     ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        plt.close()
-    else:
-        plt.show()
-
-
-def create_captum_insights_visualization(
-    model: torch.nn.Module,
-    input_tensor: torch.Tensor,
-    target_class: int,
-    class_names: List[str],
-    save_path: Optional[str] = None
-) -> None:
-    """
-    Create model analysis visualization.
-    
-    Args:
-        model: Trained PyTorch model
-        input_tensor: Input image tensor (1, C, H, W)
-        target_class: Target class index
-        class_names: List of class names
-        save_path: Path to save figure
-    """
-    setup_style()
-    
-    device = next(model.parameters()).device
-    model.eval()
-    
-    # Get prediction and confidence
-    with torch.no_grad():
-        input_tensor = input_tensor.to(device)
-        output = model(input_tensor)
-        probs = F.softmax(output, dim=1)
-        predicted_class = probs.argmax(dim=1).item()
-        confidence = probs[0, predicted_class].item()
-    
-    # Denormalize image for display
-    img_display = denormalize_image(input_tensor[0])
-    
-    # Create figure
-    fig = plt.figure(figsize=(16, 10))
-    gs = GridSpec(2, 3, figure=fig, hspace=0.3, wspace=0.3)
-    
-    # Title
-    fig.suptitle(
-        f"Captum Insights Analysis\n"
-        f"True: {class_names[target_class]} | "
-        f"Predicted: {class_names[predicted_class]} ({confidence:.2%})",
-        fontsize=14
-    )
-    
-    # 1. Original image
-    ax1 = fig.add_subplot(gs[0, 0])
-    ax1.imshow(img_display)
-    ax1.set_title("Input Image")
-    ax1.axis('off')
-    
-    # 2. Class prediction confidence
-    ax2 = fig.add_subplot(gs[0, 1])
-    top_k = 5
-    top_probs, top_indices = torch.topk(probs[0], top_k)
-    colors_conf = ['#2ecc71' if idx == predicted_class else '#3498db' 
-                   for idx in top_indices.cpu().numpy()]
-    bars = ax2.barh(range(top_k), top_probs.cpu().numpy(), color=colors_conf)
-    ax2.set_yticks(range(top_k))
-    ax2.set_yticklabels([class_names[idx] for idx in top_indices.cpu().numpy()])
-    ax2.set_xlabel('Probability')
-    ax2.set_title('Top-5 Predictions')
-    ax2.set_xlim(0, 1)
-    
-    # Add values on bars
-    for i, (bar, prob) in enumerate(zip(bars, top_probs.cpu().numpy())):
-        ax2.text(prob + 0.02, i, f'{prob:.3f}', va='center')
-    
-    # 3. Feature importance summary
-    ax3 = fig.add_subplot(gs[0, 2])
-    ax3.axis('off')
-    
-    summary_text = f"""
-    Model Analysis Summary
-    ─────────────────────
-    
-    Input Shape: {tuple(input_tensor.shape)}
-    
-    Prediction:
-    • Class: {class_names[predicted_class]}
-    • Confidence: {confidence:.2%}
-    • Correct: {'✓' if predicted_class == target_class else '✗'}
-    
-    Attribution Methods Available:
-    • Integrated Gradients
-    • Input × Gradient
-    • Saliency Maps
-    • LIME
-    • Kernel SHAP
-    • Gradient SHAP
-    • Occlusion
-    """
-    
-    ax3.text(0.05, 0.95, summary_text, transform=ax3.transAxes,
-            fontsize=10, verticalalignment='top', family='monospace',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    
-    # Store for additional visualizations
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        plt.close()
-    else:
-        plt.show()
-
-
-def create_neuron_insights_visualization(
-    model: torch.nn.Module,
-    input_tensor: torch.Tensor,
-    layer_name: str,
-    neuron_index: int,
-    save_path: Optional[str] = None
-) -> None:
-    """
-    Visualize neuron-level attributions using Captum Neuron insights.
-    
-    Args:
-        model: Trained PyTorch model
-        input_tensor: Input image tensor (1, C, H, W)
-        layer_name: Name of the layer to analyze
-        neuron_index: Index of the neuron
-        save_path: Path to save figure
-    """
-    setup_style()
-    
-    device = next(model.parameters()).device
-    model.eval()
-    
-    # Denormalize image
-    img_display = denormalize_image(input_tensor[0])
-    
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    
-    # Original image
-    axes[0].imshow(img_display)
-    axes[0].set_title(f"Input Image")
-    axes[0].axis('off')
-    
-    # Neuron activation info
-    axes[1].axis('off')
-    
-    info_text = f"""
-    Neuron Analysis
-    ───────────────
-    
-    Layer: {layer_name}
-    Neuron ID: {neuron_index}
-    
-    This visualization shows which
-    input regions most activate
-    this specific neuron.
-    
-    Use for:
-    • Understanding neuron selectivity
-    • Detecting dead neurons
-    • Layer-wise interpretability
-    • Network debugging
-    """
-    
-    axes[1].text(0.1, 0.5, info_text, transform=axes[1].transAxes,
-                fontsize=11, verticalalignment='center', family='monospace',
-                bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        plt.close()
-    else:
-        plt.show()
-
-
-def create_insights_summary_report(
-    model: torch.nn.Module,
-    dataset: torch.utils.data.Dataset,
-    class_names: List[str],
-    n_samples: int = 5,
-    output_dir: str = None
-) -> None:
-    """
-    Create comprehensive Captum Insights analysis report.
-    
-    Args:
-        model: Trained PyTorch model
-        dataset: Test dataset
-        class_names: List of class names
-        n_samples: Number of samples to analyze
-        output_dir: Directory to save report
-    """
-    import os
-    
-    if output_dir is None:
-        output_dir = str(config.RESULTS_DIR / 'insights_report')
-    
-    os.makedirs(output_dir, exist_ok=True)
-    
-    print("Creating Captum Insights analysis report...")
-    device = next(model.parameters()).device
-    model.eval()
-    
-    # Analyze multiple samples
-    for idx in range(min(n_samples, len(dataset))):
-        try:
-            sample = dataset[idx]
-            input_tensor = sample['image'].unsqueeze(0).to(device)
-            target_class = sample['label']
-            
-            # Create insights visualization
-            create_captum_insights_visualization(
-                model=model,
-                input_tensor=input_tensor,
-                target_class=target_class,
-                class_names=class_names,
-                save_path=f"{output_dir}/sample_{idx:03d}_insights.png"
-            )
-            
-            print(f"  ✓ Sample {idx} analyzed")
-            
-        except Exception as e:
-            print(f"  ✗ Sample {idx}: {e}")
-    
-    print(f"\nInsights report saved to {output_dir}")
-
-
-
-
-def create_top_k_analysis(
-    detailed_df: pd.DataFrame,
-    save_path: Optional[str] = None
-) -> None:
-    """
-    Create analysis of IoU and Mass Accuracy at different top-k thresholds.
-    
-    Args:
-        detailed_df: Detailed results DataFrame
-        save_path: Path to save figure
-    """
-    setup_style()
-    
-    # Get IoU and mass accuracy columns
-    iou_cols = [c for c in detailed_df.columns if c.startswith('iou_top')]
-    mass_cols = [c for c in detailed_df.columns if c.startswith('mass_accuracy_top')]
-    
-    if not iou_cols or not mass_cols:
-        print("No top-k metrics available")
-        return
-    
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-    
-    methods = detailed_df['method'].unique()
-    colors = plt.cm.Set2(np.linspace(0, 1, len(methods)))
-    
-    # IoU plot
-    for idx, method in enumerate(methods):
-        method_data = detailed_df[detailed_df['method'] == method]
-        means = [method_data[col].mean() for col in sorted(iou_cols)]
-        stds = [method_data[col].std() for col in sorted(iou_cols)]
-        
-        k_values = [int(col.split('top')[1]) for col in sorted(iou_cols)]
-        
-        ax1.errorbar(k_values, means, yerr=stds, marker='o', label=method, 
-                    color=colors[idx], capsize=3)
-    
-    ax1.set_xlabel('Top-k Percentage')
-    ax1.set_ylabel('IoU Score')
-    ax1.set_title('IoU at Different Thresholds')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    
-    # Mass Accuracy plot
-    for idx, method in enumerate(methods):
-        method_data = detailed_df[detailed_df['method'] == method]
-        means = [method_data[col].mean() for col in sorted(mass_cols)]
-        stds = [method_data[col].std() for col in sorted(mass_cols)]
-        
-        k_values = [int(col.split('top')[1]) for col in sorted(mass_cols)]
-        
-        ax2.errorbar(k_values, means, yerr=stds, marker='o', label=method,
-                    color=colors[idx], capsize=3)
-    
-    ax2.set_xlabel('Top-k Percentage')
-    ax2.set_ylabel('Mass Accuracy')
-    ax2.set_title('Mass Accuracy at Different Thresholds')
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        plt.close()
-    else:
-        plt.show()
-
-
-def create_per_part_analysis(
-    part_results: Dict[str, Dict[int, float]],
-    part_names: Dict[int, str],
-    save_path: Optional[str] = None
-) -> None:
-    """
-    Create analysis of attribution quality per bird part.
-    
-    Args:
-        part_results: Dictionary mapping method -> part_id -> metric_value
-        part_names: Dictionary mapping part_id -> part_name
-        save_path: Path to save figure
-    """
-    setup_style()
-    
-    methods = list(part_results.keys())
-    parts = sorted(part_names.keys())
-    
-    fig, ax = plt.subplots(figsize=(14, 6))
-    
-    x = np.arange(len(parts))
-    width = 0.8 / len(methods)
-    
-    colors = plt.cm.Set2(np.linspace(0, 1, len(methods)))
-    
-    for idx, method in enumerate(methods):
-        values = [part_results[method].get(p, 0) for p in parts]
-        offset = (idx - len(methods) / 2 + 0.5) * width
-        bars = ax.bar(x + offset, values, width, label=method, color=colors[idx])
-    
-    ax.set_xlabel('Bird Part')
-    ax.set_ylabel('EBPG Score')
-    ax.set_title('Explanation Quality by Bird Part')
-    ax.set_xticks(x)
-    ax.set_xticklabels([part_names[p] for p in parts], rotation=45, ha='right')
-    ax.legend(title='Method')
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    plt.tight_layout()
     
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
@@ -804,102 +363,763 @@ def create_model_vs_method_analysis(
         plt.show()
 
 
-def create_summary_report(
-    summary_df: pd.DataFrame,
-    detailed_df: pd.DataFrame,
-    output_dir: str
+# =============================================================================
+# XAI LITERATURE-BASED VISUALIZATIONS
+# =============================================================================
+
+def create_roc_curve_comparison(
+    attributions: Dict[str, np.ndarray],
+    part_mask: np.ndarray,
+    save_path: Optional[str] = None,
+    show: bool = True
 ) -> None:
     """
-    Create all visualizations for a complete analysis report.
+    Create ROC curves comparing all attribution methods.
+    
+    Based on standard practice in XAI evaluation (Adebayo et al., NeurIPS 2018).
     
     Args:
-        summary_df: Summary results DataFrame
-        detailed_df: Detailed results DataFrame
-        output_dir: Directory to save all figures
+        attributions: Dictionary of method_name -> attribution_map
+        part_mask: Binary ground truth mask
+        save_path: Path to save figure
+        show: Whether to display
     """
-    import os
-    os.makedirs(output_dir, exist_ok=True)
+    from sklearn.metrics import roc_curve, auc
     
-    print("Creating summary report visualizations...")
+    setup_style()
+    fig, ax = plt.subplots(figsize=(8, 8))
     
-    # 1. Metrics comparison bar chart
-    try:
-        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        metrics = ['pointing_game', 'ebpg', 'auc_roc', 'average_precision']
-        titles = ['Pointing Game', 'Energy-Based Pointing Game', 'AUC-ROC', 'Average Precision']
-        
-        for ax, metric, title in zip(axes.flatten(), metrics, titles):
-            mean_col = f'{metric}_mean'
-            std_col = f'{metric}_std'
+    colors = plt.cm.Set2(np.linspace(0, 1, len(attributions)))
+    gt_flat = part_mask.flatten().astype(int)
+    
+    for idx, (method, attr_map) in enumerate(attributions.items()):
+        if attr_map is None:
+            continue
             
-            if mean_col in summary_df.columns:
-                methods = summary_df['method'].values
-                means = summary_df[mean_col].values
-                stds = summary_df.get(std_col, np.zeros_like(means))
-                
-                colors = plt.cm.Set2(np.linspace(0, 1, len(methods)))
-                bars = ax.bar(range(len(methods)), means, yerr=stds, capsize=5, color=colors)
-                ax.set_xticks(range(len(methods)))
-                ax.set_xticklabels([m.replace('_', '\n') for m in methods])
-                ax.set_ylabel('Score')
-                ax.set_title(title)
-                ax.set_ylim(0, 1)
+        # Normalize attribution to [0, 1]
+        attr_flat = attr_map.flatten()
+        attr_norm = (attr_flat - attr_flat.min()) / (attr_flat.max() - attr_flat.min() + 1e-8)
         
-        plt.tight_layout()
-        plt.savefig(f"{output_dir}/1_metrics_comparison.png", dpi=150)
+        # Compute ROC curve
+        fpr, tpr, _ = roc_curve(gt_flat, attr_norm)
+        roc_auc = auc(fpr, tpr)
+        
+        # Plot
+        ax.plot(fpr, tpr, color=colors[idx], lw=2,
+                label=f'{method.replace("_", " ").title()} (AUC = {roc_auc:.3f})')
+    
+    # Reference line
+    ax.plot([0, 1], [0, 1], 'k--', lw=1, label='Random (AUC = 0.500)')
+    
+    ax.set_xlim([0.0, 1.0])
+    ax.set_ylim([0.0, 1.05])
+    ax.set_xlabel('False Positive Rate')
+    ax.set_ylabel('True Positive Rate')
+    ax.set_title('ROC Curves: Attribution Methods Comparison')
+    ax.legend(loc='lower right', framealpha=0.9)
+    ax.set_aspect('equal')
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    else:
         plt.close()
-        print("  ✓ Metrics comparison")
-    except Exception as e:
-        print(f"  ✗ Metrics comparison: {e}")
-    
-    # 2. Radar chart
-    try:
-        create_metrics_radar_chart(summary_df, save_path=f"{output_dir}/2_radar_chart.png")
-        print("  ✓ Radar chart")
-    except Exception as e:
-        print(f"  ✗ Radar chart: {e}")
-    
-    # 3. Top-k analysis
-    try:
-        create_top_k_analysis(detailed_df, save_path=f"{output_dir}/3_topk_analysis.png")
-        print("  ✓ Top-k analysis")
-    except Exception as e:
-        print(f"  ✗ Top-k analysis: {e}")
-    
-    # 4. Model vs Method analysis
-    try:
-        create_model_vs_method_analysis(detailed_df, save_path=f"{output_dir}/4_model_vs_method.png")
-        print("  ✓ Model vs Method analysis")
-    except Exception as e:
-        print(f"  ✗ Model vs Method analysis: {e}")
-    
-    # 5. Distribution plots
-    try:
-        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        metrics = ['pointing_game', 'ebpg', 'auc_roc', 'average_precision']
-        
-        for ax, metric in zip(axes.flatten(), metrics):
-            if metric in detailed_df.columns:
-                sns.violinplot(data=detailed_df, x='method', y=metric, ax=ax)
-                ax.set_xticklabels([t.get_text().replace('_', '\n') for t in ax.get_xticklabels()])
-                ax.set_title(metric.replace('_', ' ').title())
-        
-        plt.tight_layout()
-        plt.savefig(f"{output_dir}/5_distributions.png", dpi=150)
-        plt.close()
-        print("  ✓ Distribution plots")
-    except Exception as e:
-        print(f"  ✗ Distribution plots: {e}")
 
+
+def create_pr_curve_comparison(
+    attributions: Dict[str, np.ndarray],
+    part_mask: np.ndarray,
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> None:
+    """
+    Create Precision-Recall curves comparing all attribution methods.
     
-    # 6. Captum Insights analysis
-    try:
-        # Assuming you have access to model and dataset
-        print("  ⚙ Generating Captum Insights (this may take time)...")
-        # create_insights_summary_report(model, test_dataset, class_names, 
-        #                                n_samples=3, output_dir=f"{output_dir}/insights")
-        print("  ✓ Captum Insights")
-    except Exception as e:
-        print(f"  ✗ Captum Insights: {e}")
+    Args:
+        attributions: Dictionary of method_name -> attribution_map
+        part_mask: Binary ground truth mask
+        save_path: Path to save figure
+        show: Whether to display
+    """
+    from sklearn.metrics import precision_recall_curve, average_precision_score
     
-    print(f"\nAll visualizations saved to {output_dir}")
+    setup_style()
+    fig, ax = plt.subplots(figsize=(8, 8))
+    
+    colors = plt.cm.Set2(np.linspace(0, 1, len(attributions)))
+    gt_flat = part_mask.flatten().astype(int)
+    
+    # Baseline (random classifier)
+    baseline_ap = gt_flat.mean()
+    
+    for idx, (method, attr_map) in enumerate(attributions.items()):
+        if attr_map is None:
+            continue
+            
+        attr_flat = attr_map.flatten()
+        attr_norm = (attr_flat - attr_flat.min()) / (attr_flat.max() - attr_flat.min() + 1e-8)
+        
+        precision, recall, _ = precision_recall_curve(gt_flat, attr_norm)
+        ap = average_precision_score(gt_flat, attr_norm)
+        
+        ax.plot(recall, precision, color=colors[idx], lw=2,
+                label=f'{method.replace("_", " ").title()} (AP = {ap:.3f})')
+    
+    # Baseline line
+    ax.axhline(y=baseline_ap, linestyle='--', color='gray', lw=1,
+               label=f'Random (AP = {baseline_ap:.3f})')
+    
+    ax.set_xlim([0.0, 1.0])
+    ax.set_ylim([0.0, 1.05])
+    ax.set_xlabel('Recall')
+    ax.set_ylabel('Precision')
+    ax.set_title('Precision-Recall Curves: Attribution Methods Comparison')
+    ax.legend(loc='upper right', framealpha=0.9)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+
+def create_iou_threshold_curves(
+    attributions: Dict[str, np.ndarray],
+    part_mask: np.ndarray,
+    thresholds: List[float] = None,
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> None:
+    """
+    Create IoU vs threshold curves for each method.
+    
+    Shows how IoU varies with different top-k percentages.
+    
+    Args:
+        attributions: Dictionary of method_name -> attribution_map
+        part_mask: Binary ground truth mask
+        thresholds: List of top-k percentages to evaluate
+        save_path: Path to save figure
+        show: Whether to display
+    """
+    if thresholds is None:
+        thresholds = [1, 2, 5, 10, 15, 20, 25, 30, 40, 50]
+    
+    setup_style()
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    colors = plt.cm.Set2(np.linspace(0, 1, len(attributions)))
+    gt_binary = part_mask > 0
+    
+    for idx, (method, attr_map) in enumerate(attributions.items()):
+        if attr_map is None:
+            continue
+            
+        ious = []
+        for k in thresholds:
+            # Threshold to get top k%
+            threshold = np.percentile(attr_map, 100 - k)
+            pred_binary = attr_map >= threshold
+            
+            # Compute IoU
+            intersection = np.logical_and(pred_binary, gt_binary).sum()
+            union = np.logical_or(pred_binary, gt_binary).sum()
+            iou = intersection / (union + 1e-8)
+            ious.append(iou)
+        
+        ax.plot(thresholds, ious, 'o-', color=colors[idx], lw=2, markersize=6,
+                label=f'{method.replace("_", " ").title()}')
+    
+    ax.set_xlabel('Top-k Percentage (%)')
+    ax.set_ylabel('IoU Score')
+    ax.set_title('IoU at Different Thresholds')
+    ax.legend(loc='best', framealpha=0.9)
+    ax.set_ylim(0, 1)
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+
+def visualize_attribution_enhanced(
+    input_image: np.ndarray,
+    attribution_map: np.ndarray,
+    part_mask: Optional[np.ndarray] = None,
+    method_name: str = "Attribution",
+    show_contours: bool = True,
+    show_percentiles: bool = True,
+    percentiles: List[float] = [5, 10, 20],
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> None:
+    """
+    Enhanced attribution visualization with contours and percentile thresholding.
+    
+    Based on best practices from Montavon et al. (2019).
+    
+    Args:
+        input_image: Original image (H, W, C)
+        attribution_map: Attribution map (H, W)
+        part_mask: Optional ground truth mask for comparison
+        method_name: Name of the attribution method
+        show_contours: Whether to show contour lines
+        show_percentiles: Whether to show percentile thresholds
+        percentiles: Which percentiles to highlight
+        save_path: Path to save figure
+        show: Whether to display
+    """
+    setup_style()
+    
+    n_cols = 3 if part_mask is not None else 2
+    if show_percentiles:
+        n_cols += len(percentiles)
+    
+    fig, axes = plt.subplots(1, n_cols, figsize=(4 * n_cols, 4))
+    
+    # Determine colormap based on method
+    is_divergent = method_name.lower() in DIVERGENT_METHODS
+    if is_divergent:
+        vmax = np.abs(attribution_map).max()
+        vmin = -vmax
+        cmap = DIVERGENT_CMAP
+    else:
+        attr_norm = (attribution_map - attribution_map.min()) / (attribution_map.max() - attribution_map.min() + 1e-8)
+        vmin, vmax = 0, 1
+        cmap = SEQUENTIAL_CMAP
+    
+    idx = 0
+    
+    # 1. Original image
+    axes[idx].imshow(input_image)
+    axes[idx].set_title("Original Image", fontweight='bold')
+    axes[idx].axis('off')
+    idx += 1
+    
+    # 2. Attribution with contours
+    axes[idx].imshow(input_image)
+    if is_divergent:
+        im = axes[idx].imshow(attribution_map, cmap=cmap, alpha=0.7, vmin=vmin, vmax=vmax)
+    else:
+        im = axes[idx].imshow(attr_norm, cmap=cmap, alpha=0.7)
+    
+    if show_contours:
+        contour_data = attribution_map if is_divergent else attr_norm
+        levels = np.percentile(contour_data, [50, 75, 90, 95])
+        axes[idx].contour(contour_data, levels=levels, colors='white', linewidths=0.8, alpha=0.8)
+    
+    axes[idx].set_title(f"{method_name}\n(with contours)", fontweight='bold')
+    axes[idx].axis('off')
+    plt.colorbar(im, ax=axes[idx], fraction=0.046, pad=0.04)
+    idx += 1
+    
+    # 3. Ground truth overlay (if available)
+    if part_mask is not None:
+        axes[idx].imshow(input_image)
+        axes[idx].imshow(part_mask, cmap='Greens', alpha=0.5)
+        axes[idx].contour(part_mask, levels=[0.5], colors='lime', linewidths=2)
+        axes[idx].set_title("Ground Truth", fontweight='bold')
+        axes[idx].axis('off')
+        idx += 1
+    
+    # 4. Percentile thresholded views
+    if show_percentiles:
+        for p in percentiles:
+            threshold = np.percentile(attribution_map, 100 - p)
+            mask = attribution_map >= threshold
+            
+            axes[idx].imshow(input_image)
+            axes[idx].imshow(mask, cmap='Reds', alpha=0.6)
+            axes[idx].contour(mask, levels=[0.5], colors='red', linewidths=1.5)
+            
+            if part_mask is not None:
+                axes[idx].contour(part_mask, levels=[0.5], colors='lime', linewidths=1.5, linestyles='--')
+            
+            axes[idx].set_title(f"Top {p}%", fontweight='bold')
+            axes[idx].axis('off')
+            idx += 1
+    
+    plt.suptitle(f"Enhanced Attribution Analysis: {method_name}", fontsize=14, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+
+def create_pointing_game_visualization(
+    input_image: np.ndarray,
+    attribution_map: np.ndarray,
+    part_mask: np.ndarray,
+    method_name: str = "Attribution",
+    top_k_percent: float = 5.0,
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> Dict:
+    """
+    Visualize Pointing Game metric - shows whether max attribution hits GT region.
+    
+    Args:
+        input_image: Original image (H, W, C)
+        attribution_map: Attribution map (H, W)
+        part_mask: Binary ground truth mask
+        method_name: Name of the method
+        top_k_percent: Percentage for top-k pointing game variant
+        save_path: Path to save figure
+        show: Whether to display
+        
+    Returns:
+        Dictionary with pointing game results
+    """
+    setup_style()
+    
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    
+    # Find max attribution location
+    max_idx = np.unravel_index(np.argmax(attribution_map), attribution_map.shape)
+    max_y, max_x = max_idx
+    
+    # Check if hit
+    is_hit = part_mask[max_y, max_x] > 0
+    
+    # 1. Attribution map with max point
+    axes[0].imshow(input_image)
+    attr_norm = (attribution_map - attribution_map.min()) / (attribution_map.max() - attribution_map.min() + 1e-8)
+    axes[0].imshow(attr_norm, cmap=SEQUENTIAL_CMAP, alpha=0.6)
+    
+    # Mark max point
+    color = 'lime' if is_hit else 'red'
+    marker = '★' if is_hit else '✕'
+    axes[0].scatter(max_x, max_y, c=color, s=300, marker='*', edgecolors='white', linewidth=2, zorder=5)
+    axes[0].set_title(f"Max Attribution Point\n{'✓ HIT' if is_hit else '✗ MISS'}", 
+                      fontweight='bold', color='green' if is_hit else 'red')
+    axes[0].axis('off')
+    
+    # 2. Ground truth with max point
+    axes[1].imshow(input_image)
+    axes[1].imshow(part_mask, cmap='Greens', alpha=0.5)
+    axes[1].contour(part_mask, levels=[0.5], colors='lime', linewidths=2)
+    axes[1].scatter(max_x, max_y, c=color, s=300, marker='*', edgecolors='white', linewidth=2, zorder=5)
+    axes[1].set_title("Ground Truth Region", fontweight='bold')
+    axes[1].axis('off')
+    
+    # 3. Top-k% with GT overlay
+    threshold = np.percentile(attribution_map, 100 - top_k_percent)
+    top_k_mask = attribution_map >= threshold
+    
+    axes[2].imshow(input_image)
+    axes[2].imshow(top_k_mask, cmap='Reds', alpha=0.5)
+    axes[2].contour(part_mask, levels=[0.5], colors='lime', linewidths=2)
+    
+    # Check if any top-k point hits
+    top_k_hit = np.any(np.logical_and(top_k_mask, part_mask > 0))
+    axes[2].set_title(f"Top {top_k_percent}% Attribution\n{'✓ HIT' if top_k_hit else '✗ MISS'}", 
+                      fontweight='bold', color='green' if top_k_hit else 'red')
+    axes[2].axis('off')
+    
+    plt.suptitle(f"Pointing Game Analysis: {method_name}", fontsize=14, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    else:
+        plt.close()
+    
+    return {
+        'max_point': (max_x, max_y),
+        'is_hit': is_hit,
+        'top_k_hit': top_k_hit,
+        'top_k_percent': top_k_percent
+    }
+
+
+def create_ebpg_visualization(
+    attribution_map: np.ndarray,
+    part_mask: np.ndarray,
+    method_name: str = "Attribution",
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> Dict:
+    """
+    Visualize Energy-Based Pointing Game - shows energy distribution inside/outside GT.
+    
+    Args:
+        attribution_map: Attribution map (H, W)
+        part_mask: Binary ground truth mask
+        method_name: Name of the method
+        save_path: Path to save figure
+        show: Whether to display
+        
+    Returns:
+        Dictionary with EBPG results
+    """
+    setup_style()
+    
+    fig = plt.figure(figsize=(14, 5))
+    gs = GridSpec(1, 3, figure=fig, width_ratios=[1, 1, 1.2])
+    
+    # Use absolute values for energy calculation
+    attr_abs = np.abs(attribution_map)
+    total_energy = attr_abs.sum()
+    
+    gt_mask = part_mask > 0
+    energy_in_gt = attr_abs[gt_mask].sum()
+    energy_outside_gt = attr_abs[~gt_mask].sum()
+    
+    ebpg_score = energy_in_gt / (total_energy + 1e-8)
+    
+    # 1. Attribution map split by GT
+    ax1 = fig.add_subplot(gs[0])
+    attr_in = np.where(gt_mask, attr_abs, np.nan)
+    attr_out = np.where(~gt_mask, attr_abs, np.nan)
+    
+    ax1.imshow(attr_out, cmap='Blues', alpha=0.8, vmin=0, vmax=attr_abs.max())
+    im = ax1.imshow(attr_in, cmap='Reds', alpha=0.8, vmin=0, vmax=attr_abs.max())
+    ax1.contour(part_mask, levels=[0.5], colors='black', linewidths=2)
+    ax1.set_title("Energy Distribution\n(Red=Inside GT, Blue=Outside)", fontweight='bold')
+    ax1.axis('off')
+    
+    # 2. Pie chart
+    ax2 = fig.add_subplot(gs[1])
+    colors_pie = ['#2ecc71', '#e74c3c']  # Green for inside, red for outside
+    sizes = [ebpg_score * 100, (1 - ebpg_score) * 100]
+    labels = [f'Inside GT\n({ebpg_score:.1%})', f'Outside GT\n({1-ebpg_score:.1%})']
+    
+    wedges, texts, autotexts = ax2.pie(sizes, labels=labels, colors=colors_pie, autopct='',
+                                        startangle=90, explode=(0.05, 0))
+    ax2.set_title(f"EBPG Score: {ebpg_score:.3f}", fontweight='bold', fontsize=12)
+    
+    # 3. Cumulative energy curve
+    ax3 = fig.add_subplot(gs[2])
+    
+    # Sort pixels by attribution value
+    flat_attr = attr_abs.flatten()
+    flat_gt = gt_mask.flatten()
+    sorted_indices = np.argsort(flat_attr)[::-1]  # Descending
+    
+    sorted_attr = flat_attr[sorted_indices]
+    sorted_gt = flat_gt[sorted_indices]
+    
+    # Cumulative energy
+    cumulative_energy = np.cumsum(sorted_attr) / total_energy
+    cumulative_gt_energy = np.cumsum(sorted_attr * sorted_gt) / (energy_in_gt + 1e-8)
+    
+    # X-axis as percentage of pixels
+    x = np.arange(len(flat_attr)) / len(flat_attr) * 100
+    
+    ax3.plot(x, cumulative_energy, 'b-', lw=2, label='Total Energy')
+    ax3.plot(x, cumulative_gt_energy, 'g-', lw=2, label='GT Energy (normalized)')
+    ax3.axhline(y=0.5, linestyle='--', color='gray', alpha=0.5)
+    ax3.axhline(y=0.9, linestyle='--', color='gray', alpha=0.5)
+    
+    ax3.set_xlabel('Percentage of Pixels (sorted by attribution)')
+    ax3.set_ylabel('Cumulative Energy')
+    ax3.set_title('Cumulative Energy Distribution', fontweight='bold')
+    ax3.legend(loc='lower right')
+    ax3.set_xlim(0, 100)
+    ax3.set_ylim(0, 1.05)
+    ax3.grid(True, alpha=0.3)
+    
+    plt.suptitle(f"Energy-Based Pointing Game Analysis: {method_name}", fontsize=14, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    else:
+        plt.close()
+    
+    return {
+        'ebpg_score': ebpg_score,
+        'energy_in_gt': energy_in_gt,
+        'energy_outside_gt': energy_outside_gt,
+        'total_energy': total_energy
+    }
+
+
+def create_methods_ranking_heatmap(
+    summary_df: pd.DataFrame,
+    metrics: List[str] = None,
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> None:
+    """
+    Create a heatmap showing method rankings across metrics.
+    
+    Args:
+        summary_df: Summary DataFrame with mean metrics per method
+        metrics: List of metrics to include
+        save_path: Path to save figure
+        show: Whether to display
+    """
+    setup_style()
+    
+    if metrics is None:
+        metrics = ['pointing_game', 'ebpg', 'auc_roc', 'average_precision']
+    
+    # Get available metrics
+    mean_cols = [f'{m}_mean' for m in metrics]
+    available_cols = [c for c in mean_cols if c in summary_df.columns]
+    
+    if not available_cols:
+        print("No metrics available for heatmap")
+        return
+    
+    # Create ranking matrix
+    methods = summary_df['method'].values
+    data = summary_df[available_cols].values
+    
+    # Rank within each column (higher is better, so rank descending)
+    ranks = np.zeros_like(data)
+    for j in range(data.shape[1]):
+        ranks[:, j] = len(methods) - np.argsort(np.argsort(data[:, j]))
+    
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    
+    # 1. Values heatmap
+    metric_labels = [m.replace('_mean', '').replace('_', ' ').title() for m in available_cols]
+    
+    sns.heatmap(data, annot=True, fmt='.3f', cmap='YlGnBu', ax=axes[0],
+                xticklabels=metric_labels, yticklabels=[m.replace('_', ' ').title() for m in methods],
+                cbar_kws={'label': 'Score'})
+    axes[0].set_title('Metric Values', fontweight='bold')
+    axes[0].set_xlabel('Metric')
+    axes[0].set_ylabel('Method')
+    
+    # 2. Rankings heatmap
+    sns.heatmap(ranks, annot=True, fmt='.0f', cmap='RdYlGn_r', ax=axes[1],
+                xticklabels=metric_labels, yticklabels=[m.replace('_', ' ').title() for m in methods],
+                cbar_kws={'label': 'Rank (1 = best)'}, vmin=1, vmax=len(methods))
+    axes[1].set_title('Method Rankings', fontweight='bold')
+    axes[1].set_xlabel('Metric')
+    axes[1].set_ylabel('Method')
+    
+    plt.suptitle('Methods Comparison: Values and Rankings', fontsize=14, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+
+def create_sanity_check_comparison(
+    original_attributions: Dict[str, np.ndarray],
+    randomized_attributions: Dict[str, np.ndarray],
+    input_image: np.ndarray,
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> Dict:
+    """
+    Visualize sanity check results by comparing original and randomized model attributions.
+    
+    Based on Adebayo et al. (2018) "Sanity Checks for Saliency Maps".
+    
+    Args:
+        original_attributions: Attributions from trained model
+        randomized_attributions: Attributions from randomized model
+        input_image: Original image for reference
+        save_path: Path to save figure
+        show: Whether to display
+        
+    Returns:
+        Dictionary with similarity scores
+    """
+    from scipy.stats import spearmanr
+    
+    setup_style()
+    
+    methods = list(original_attributions.keys())
+    n_methods = len(methods)
+    
+    fig, axes = plt.subplots(n_methods, 4, figsize=(16, 4 * n_methods))
+    if n_methods == 1:
+        axes = axes.reshape(1, -1)
+    
+    results = {}
+    
+    for i, method in enumerate(methods):
+        orig = original_attributions.get(method)
+        rand = randomized_attributions.get(method)
+        
+        if orig is None or rand is None:
+            continue
+        
+        # Normalize for visualization
+        orig_norm = (orig - orig.min()) / (orig.max() - orig.min() + 1e-8)
+        rand_norm = (rand - rand.min()) / (rand.max() - rand.min() + 1e-8)
+        
+        # Compute similarity
+        correlation, _ = spearmanr(orig.flatten(), rand.flatten())
+        ssim = 1 - np.mean((orig_norm - rand_norm) ** 2)  # Simple similarity
+        
+        results[method] = {
+            'spearman_correlation': correlation,
+            'similarity': ssim,
+            'passes_sanity_check': abs(correlation) < 0.5  # Low correlation = passes
+        }
+        
+        # Plot
+        axes[i, 0].imshow(input_image)
+        axes[i, 0].set_title("Original Image" if i == 0 else "")
+        axes[i, 0].set_ylabel(method.replace('_', ' ').title(), fontsize=12, fontweight='bold')
+        axes[i, 0].axis('off')
+        
+        axes[i, 1].imshow(orig_norm, cmap=SEQUENTIAL_CMAP)
+        axes[i, 1].set_title("Trained Model" if i == 0 else "")
+        axes[i, 1].axis('off')
+        
+        axes[i, 2].imshow(rand_norm, cmap=SEQUENTIAL_CMAP)
+        axes[i, 2].set_title("Randomized Model" if i == 0 else "")
+        axes[i, 2].axis('off')
+        
+        # Difference
+        diff = np.abs(orig_norm - rand_norm)
+        im = axes[i, 3].imshow(diff, cmap='Reds')
+        axes[i, 3].set_title("Difference" if i == 0 else "")
+        axes[i, 3].axis('off')
+        
+        # Add correlation annotation
+        color = 'green' if results[method]['passes_sanity_check'] else 'red'
+        status = '✓ PASS' if results[method]['passes_sanity_check'] else '✗ FAIL'
+        axes[i, 3].text(1.05, 0.5, f"ρ = {correlation:.2f}\n{status}", 
+                        transform=axes[i, 3].transAxes, fontsize=10, fontweight='bold',
+                        color=color, va='center')
+    
+    plt.suptitle('Sanity Check: Trained vs Randomized Model Attributions', 
+                 fontsize=14, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    else:
+        plt.close()
+    
+    return results
+
+
+def create_cascade_randomization_plot(
+    cascade_results: Dict[str, Dict[str, List[float]]],
+    save_path: Optional[str] = None,
+    show: bool = True
+) -> None:
+    """
+    Create visualization for cascade randomization test (Adebayo et al., 2018).
+    
+    Shows how explanations change as layers are progressively randomized
+    from top (logit) to bottom (conv1). Faithful methods should show
+    decreasing correlation as more layers (especially top layers) are randomized.
+    
+    Args:
+        cascade_results: Results from cascade_randomization_test()
+                        {method: {layer_stage: [correlations]}}
+        save_path: Path to save figure
+        show: Whether to display
+    """
+    setup_style()
+    
+    # Extract layer stages and methods
+    methods = list(cascade_results.keys())
+    if not methods:
+        print("No methods to plot")
+        return
+    
+    # Get layer stages (assuming all methods have same stages)
+    stages = list(cascade_results[methods[0]].keys())
+    
+    # Compute mean and std for each method at each stage
+    data = {}
+    for method in methods:
+        means = []
+        stds = []
+        for stage in stages:
+            correlations = cascade_results[method].get(stage, [])
+            if correlations:
+                means.append(np.mean(correlations))
+                stds.append(np.std(correlations))
+            else:
+                means.append(np.nan)
+                stds.append(0.0)
+        data[method] = {'means': means, 'stds': stds}
+    
+    # Create plot
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    colors = plt.cm.Set2(np.linspace(0, 1, len(methods)))
+    x_positions = np.arange(len(stages))
+    
+    for idx, method in enumerate(methods):
+        means = data[method]['means']
+        stds = data[method]['stds']
+        
+        ax.plot(x_positions, means, marker='o', linewidth=2, markersize=8,
+                label=method.replace('_', ' ').title(), color=colors[idx])
+        ax.fill_between(x_positions, 
+                        np.array(means) - np.array(stds),
+                        np.array(means) + np.array(stds),
+                        alpha=0.2, color=colors[idx])
+    
+    # Styling
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels([s.capitalize() for s in stages], rotation=0)
+    ax.set_xlabel('Randomized Layers (Cumulative: Logit → Conv1)', fontweight='bold', fontsize=12)
+    ax.set_ylabel('Spearman Correlation (ρ)', fontweight='bold', fontsize=12)
+    ax.set_title('Cascade Randomization Test: Model Parameter Dependence\n' + 
+                 'Lower correlation = More dependent on learned weights = Better',
+                 fontweight='bold', fontsize=14)
+    
+    # Add reference lines
+    ax.axhline(y=0.5, color='red', linestyle='--', linewidth=1, alpha=0.5, 
+               label='Threshold (ρ=0.5)')
+    ax.axhline(y=0.0, color='gray', linestyle='-', linewidth=0.5, alpha=0.3)
+    
+    # Add interpretation zones
+    ax.axhspan(0, 0.3, alpha=0.1, color='green', label='Reliable (ρ < 0.3)')
+    ax.axhspan(0.3, 0.6, alpha=0.1, color='orange')
+    ax.axhspan(0.6, 1.0, alpha=0.1, color='red', label='Unreliable (ρ > 0.6)')
+    
+    ax.set_ylim(-0.05, 1.05)
+    ax.legend(loc='upper right', framealpha=0.9, fontsize=10)
+    ax.grid(True, alpha=0.3, linestyle='--')
+    
+    # Add interpretation text box
+    interpretation_text = (
+        "Expected behavior:\n"
+        "• Correlation should DECREASE as layers are randomized\n"
+        "• Sharp drop at 'logit' or 'layer4' = Method depends on high-level features\n"
+        "• High correlation throughout = Method may be edge detector (unreliable)"
+    )
+    ax.text(0.02, 0.98, interpretation_text, transform=ax.transAxes,
+            fontsize=9, verticalalignment='top', bbox=dict(boxstyle='round', 
+            facecolor='wheat', alpha=0.5))
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
