@@ -56,8 +56,8 @@ EXPLAINABILITY_METHODS = [
     'integrated_gradients_noise',
     'saliency_noise'
 ]
-N_SAMPLES_LIME = 1000 # Number of samples for LIME TODO: test 2000 using GPU 
-N_SAMPLES_SHAP = 1000  # Number of samples for Kernel SHAP and Gradient SHAP TODO: test 2000 using GPU
+N_SAMPLES_LIME = 500 # Number of samples for LIME TODO: test 2000 using GPU 
+N_SAMPLES_SHAP = 500  # Number of samples for Kernel SHAP and Gradient SHAP TODO: test 2000 using GPU
 NT_SAMPLES = 10  # Number of samples for NoiseTunnel (SmoothGrad)
 
 # Part annotation settings (15 parts in CUB-200)

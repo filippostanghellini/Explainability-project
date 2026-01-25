@@ -283,11 +283,7 @@ def create_model_vs_method_analysis(
 ) -> None:
     """
     Create visualization analyzing whether results are due to model or method.
-    
-    Args:
-        detailed_df: Detailed results DataFrame
-        metric: Metric to analyze
-        save_path: Path to save figure
+    Fixed to avoid UserWarning about FixedLocator.
     """
     setup_style()
     
@@ -299,9 +295,10 @@ def create_model_vs_method_analysis(
     
     methods = detailed_df['method'].unique()
     
+    # ---------------------------------------------------------
     # 1. Box plot: Correct vs Incorrect
+    # ---------------------------------------------------------
     ax1 = axes[0]
-    colors = {'True': '#2ecc71', 'False': '#e74c3c'}
     
     # Convert boolean to string for better display
     plot_df = detailed_df.copy()
@@ -309,11 +306,25 @@ def create_model_vs_method_analysis(
     
     sns.boxplot(data=plot_df, x='method', y=metric, hue='Correct Prediction', ax=ax1,
                palette=['#2ecc71', '#e74c3c'])
-    ax1.set_xticklabels([t.get_text().replace('_', '\n') for t in ax1.get_xticklabels()])
+    
+    # ### FIX WARNING 1 (BOX PLOT) ###
+    # 1. Recuperiamo le posizioni (locators) attuali decise da Seaborn
+    locs = ax1.get_xticks()
+    # 2. Recuperiamo le etichette di testo attuali
+    labels = [item.get_text() for item in ax1.get_xticklabels()]
+    
+    # 3. Fissiamo PRIMA le posizioni (questo silenzia il warning)
+    ax1.set_xticks(locs)
+    # 4. SOLO ORA impostiamo le nuove etichette formattate
+    ax1.set_xticklabels([l.replace('_', '\n') for l in labels])
+    # ###############################
+    
     ax1.set_title('Explanation Quality:\nCorrect vs Incorrect Predictions')
     ax1.set_ylabel(metric.upper())
     
+    # ---------------------------------------------------------
     # 2. Difference plot
+    # ---------------------------------------------------------
     ax2 = axes[1]
     
     correct_means = plot_df[plot_df['correct'] == True].groupby('method')[metric].mean()
@@ -322,20 +333,28 @@ def create_model_vs_method_analysis(
     diff = correct_means - incorrect_means
     colors_diff = ['#2ecc71' if d > 0 else '#e74c3c' for d in diff.values]
     
+    # Qui usiamo range(len) quindi le posizioni sono già esplicite
     bars = ax2.bar(range(len(diff)), diff.values, color=colors_diff)
+    
+    # ### FIX WARNING 2 (BAR PLOT) ###
+    # Fissiamo le posizioni esplicitamente
     ax2.set_xticks(range(len(diff)))
+    # Impostiamo le etichette
     ax2.set_xticklabels([m.replace('_', '\n') for m in diff.index])
+    # ##############################
+    
     ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
     ax2.set_title('Difference in Explanation Quality\n(Correct - Incorrect)')
     ax2.set_ylabel(f'Δ {metric.upper()}')
     
-    # Add significance annotation
     ax2.text(0.5, 0.95, 
             "Positive = Better explanations for correct predictions\n(suggests faithful explanations)",
             transform=ax2.transAxes, ha='center', va='top', fontsize=9,
             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
+    # ---------------------------------------------------------
     # 3. Correlation with confidence
+    # ---------------------------------------------------------
     ax3 = axes[2]
     
     method_colors = plt.cm.Set2(np.linspace(0, 1, len(methods)))
