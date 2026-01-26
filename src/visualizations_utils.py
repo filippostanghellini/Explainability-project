@@ -278,12 +278,11 @@ def create_metrics_radar_chart(
 
 def create_model_vs_method_analysis(
     detailed_df: pd.DataFrame,
-    metric: str = 'ebpg',
-    save_path: Optional[str] = None
+    metric: str = 'ebpg'
 ) -> None:
     """
-    Create visualization analyzing whether results are due to model or method.
-    Fixed to avoid UserWarning about FixedLocator.
+    Crea visualizzazioni separate per l'analisi del modello vs metodo.
+    I grafici vengono mostrati immediatamente nell'output della cella.
     """
     setup_style()
     
@@ -291,41 +290,34 @@ def create_model_vs_method_analysis(
         print("Required columns not available")
         return
     
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    
     methods = detailed_df['method'].unique()
-    
+    plot_df = detailed_df.copy()
+    plot_df['Correct Prediction'] = plot_df['correct'].map({True: 'Correct', False: 'Incorrect'})
+
     # ---------------------------------------------------------
     # 1. Box plot: Correct vs Incorrect
     # ---------------------------------------------------------
-    ax1 = axes[0]
+    plt.figure(figsize=(10, 6))
+    ax1 = plt.gca()
     
-    # Convert boolean to string for better display
-    plot_df = detailed_df.copy()
-    plot_df['Correct Prediction'] = plot_df['correct'].map({True: 'Correct', False: 'Incorrect'})
+    sns.boxplot(data=plot_df, x='method', y=metric, hue='Correct Prediction', 
+                palette=['#2ecc71', '#e74c3c'])
     
-    sns.boxplot(data=plot_df, x='method', y=metric, hue='Correct Prediction', ax=ax1,
-               palette=['#2ecc71', '#e74c3c'])
-    
-    # ### FIX WARNING 1 (BOX PLOT) ###
-    # 1. Recuperiamo le posizioni (locators) attuali decise da Seaborn
+    # Fix etichette (sostituisce underscore con a capo per leggibilità)
     locs = ax1.get_xticks()
-    # 2. Recuperiamo le etichette di testo attuali
     labels = [item.get_text() for item in ax1.get_xticklabels()]
-    
-    # 3. Fissiamo PRIMA le posizioni (questo silenzia il warning)
     ax1.set_xticks(locs)
-    # 4. SOLO ORA impostiamo le nuove etichette formattate
     ax1.set_xticklabels([l.replace('_', '\n') for l in labels])
-    # ###############################
     
-    ax1.set_title('Explanation Quality:\nCorrect vs Incorrect Predictions')
-    ax1.set_ylabel(metric.upper())
-    
+    plt.title(f'Explanation Quality ({metric.upper()}):\nCorrect vs Incorrect Predictions')
+    plt.tight_layout()
+    plt.show() # Mostra il primo grafico
+
     # ---------------------------------------------------------
     # 2. Difference plot
     # ---------------------------------------------------------
-    ax2 = axes[1]
+    plt.figure(figsize=(10, 6))
+    ax2 = plt.gca()
     
     correct_means = plot_df[plot_df['correct'] == True].groupby('method')[metric].mean()
     incorrect_means = plot_df[plot_df['correct'] == False].groupby('method')[metric].mean()
@@ -333,29 +325,27 @@ def create_model_vs_method_analysis(
     diff = correct_means - incorrect_means
     colors_diff = ['#2ecc71' if d > 0 else '#e74c3c' for d in diff.values]
     
-    # Qui usiamo range(len) quindi le posizioni sono già esplicite
-    bars = ax2.bar(range(len(diff)), diff.values, color=colors_diff)
-    
-    # ### FIX WARNING 2 (BAR PLOT) ###
-    # Fissiamo le posizioni esplicitamente
+    ax2.bar(range(len(diff)), diff.values, color=colors_diff)
     ax2.set_xticks(range(len(diff)))
-    # Impostiamo le etichette
     ax2.set_xticklabels([m.replace('_', '\n') for m in diff.index])
-    # ##############################
     
     ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
-    ax2.set_title('Difference in Explanation Quality\n(Correct - Incorrect)')
-    ax2.set_ylabel(f'Δ {metric.upper()}')
+    plt.title(f'Difference in Explanation Quality ({metric.upper()})\n(Correct - Incorrect)')
+    plt.ylabel(f'Δ {metric.upper()}')
     
     ax2.text(0.5, 0.95, 
-            "Positive = Better explanations for correct predictions\n(suggests faithful explanations)",
+            "Positive = Better explanations for correct predictions\n(suggests faithful)",
             transform=ax2.transAxes, ha='center', va='top', fontsize=9,
             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
+    plt.tight_layout()
+    plt.show() # Mostra il secondo grafico
+
     # ---------------------------------------------------------
-    # 3. Correlation with confidence
+    # 3. Correlation with Accuracy (Scatter)
     # ---------------------------------------------------------
-    ax3 = axes[2]
+    plt.figure(figsize=(10, 6))
+    ax3 = plt.gca()
     
     method_colors = plt.cm.Set2(np.linspace(0, 1, len(methods)))
     
@@ -367,20 +357,14 @@ def create_model_vs_method_analysis(
         ax3.scatter(correct_rate, mean_metric, s=200, label=method, 
                    color=method_colors[idx], edgecolors='black', linewidth=1)
     
-    ax3.set_xlabel('Classification Accuracy')
-    ax3.set_ylabel(f'Mean {metric.upper()}')
-    ax3.set_title('Method Performance vs Model Accuracy')
-    ax3.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    ax3.grid(True, alpha=0.3)
+    plt.xlabel('Classification Accuracy')
+    plt.ylabel(f'Mean {metric.upper()}')
+    plt.title(f'Method Performance vs Model Accuracy ({metric.upper()})')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        plt.close()
-    else:
-        plt.show()
-
+    plt.show() # Mostra il terzo grafico
 
 # =============================================================================
 # XAI LITERATURE-BASED VISUALIZATIONS
