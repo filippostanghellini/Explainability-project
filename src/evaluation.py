@@ -181,10 +181,97 @@ def compute_auc_roc(
         return 0.5
 
 
+def compute_spearman_correlation(
+    attribution_map: np.ndarray,
+    part_mask: np.ndarray
+) -> float:
+    """
+    Compute Spearman rank correlation between attribution and mask.
+    
+    Args:
+        attribution_map: Attribution map (H, W)
+        part_mask: Binary ground truth mask (H, W)
+        
+    Returns:
+        Spearman correlation coefficient
+    """
+    attr_flat = attribution_map.flatten()
+    mask_flat = part_mask.flatten()
+    
+    try:
+        corr, _ = spearmanr(attr_flat, mask_flat)
+        return corr if not np.isnan(corr) else 0.0
+    except:
+        return 0.0
 
 
+def compute_mass_accuracy(
+    attribution_map: np.ndarray,
+    part_mask: np.ndarray,
+    top_k_percent: float = 10.0
+) -> float:
+    """
+    Compute Mass Accuracy - fraction of top-k% attribution inside GT region.
+    
+    Args:
+        attribution_map: Attribution map (H, W)
+        part_mask: Binary ground truth mask (H, W)
+        top_k_percent: Percentage of top pixels to consider
+        
+    Returns:
+        Mass accuracy score
+    """
+    # Normalize and get top-k threshold
+    attr_norm = normalize_attribution(attribution_map)
+    threshold = np.percentile(attr_norm.flatten(), 100 - top_k_percent)
+    
+    # Get indices of top-k pixels
+    top_k_mask = attr_norm >= threshold
+    
+    # Count how many are in GT region
+    top_k_in_gt = (top_k_mask * part_mask).sum()
+    top_k_total = top_k_mask.sum()
+    
+    if top_k_total == 0:
+        return 0.0
+    
+    return top_k_in_gt / top_k_total
 
 
+def compute_relevance_rank_accuracy(
+    attribution_map: np.ndarray,
+    part_mask: np.ndarray,
+    top_k_percent: float = 10.0
+) -> float:
+    """
+    Compute Relevance Rank Accuracy.
+    
+    Measures whether high-attribution pixels tend to be in GT regions.
+    
+    Args:
+        attribution_map: Attribution map (H, W)
+        part_mask: Binary ground truth mask (H, W)
+        top_k_percent: Percentage of top pixels to consider
+        
+    Returns:
+        Relevance rank accuracy
+    """
+    attr_flat = attribution_map.flatten()
+    mask_flat = part_mask.flatten()
+    
+    # Get number of GT pixels
+    n_gt = int(mask_flat.sum())
+    if n_gt == 0:
+        return 0.0
+    
+    # Get indices sorted by attribution (descending)
+    sorted_indices = np.argsort(attr_flat)[::-1]
+    
+    # Count how many of top-n_gt are in GT
+    top_n_indices = sorted_indices[:n_gt]
+    hits = mask_flat[top_n_indices].sum()
+    
+    return hits / n_gt
 
 
 def compute_all_metrics(
@@ -213,10 +300,13 @@ def compute_all_metrics(
     metrics['ebpg'] = compute_energy_based_pointing_game(attribution_map, part_mask)
     metrics['auc_roc'] = compute_auc_roc(attribution_map, part_mask)
     metrics['average_precision'] = compute_average_precision(attribution_map, part_mask)
+    metrics['spearman_correlation'] = compute_spearman_correlation(attribution_map, part_mask)
+    metrics['relevance_rank_accuracy'] = compute_relevance_rank_accuracy(attribution_map, part_mask)
     
     # Threshold-dependent metrics
     for k in top_k_percentages:
         metrics[f'iou_top{k}'] = compute_iou_at_threshold(attribution_map, part_mask, k)
+        metrics[f'mass_accuracy_top{k}'] = compute_mass_accuracy(attribution_map, part_mask, k)
     
     return metrics
 
@@ -465,9 +555,17 @@ def sanity_check_explanations(
         methods = config.EXPLAINABILITY_METHODS
     
     device = next(model.parameters()).device
-    original_state = {name: param.clone() for name, param in model.named_parameters()}
-    
-    # Get original attributions
+    original_state = {name: param.detach().clone() for name, param in model.named_parameters()}
+    original_training = model.training
+
+    # Ensure input is on the correct device
+    if input_tensor.device != device:
+        input_tensor = input_tensor.to(device)
+
+    # Ensure model is in eval mode
+    model.eval()
+
+    # Get original attributions (use explainer as provided)
     original_attrs = explainer.get_all_attributions(input_tensor, target_class, methods)
     
     correlation_changes = {method: [] for method in methods}
@@ -477,14 +575,24 @@ def sanity_check_explanations(
     for seed in tqdm(range(n_random_seeds)):
         # Randomize model weights
         torch.manual_seed(seed)
-        for param in model.parameters():
-            if len(param.shape) > 1:  # Skip biases
-                torch.nn.init.kaiming_uniform_(param, a=0, mode='fan_in', nonlinearity='relu')
-            else:
-                torch.nn.init.uniform_(param, 0, 1)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        with torch.no_grad():
+            for param in model.parameters():
+                if len(param.shape) > 1:  # Skip biases
+                    torch.nn.init.kaiming_uniform_(param, a=0, mode='fan_in', nonlinearity='relu')
+                else:
+                    torch.nn.init.uniform_(param, 0, 1)
         
-        # Compute attributions with random weights
-        random_attrs = explainer.get_all_attributions(input_tensor, target_class, methods)
+        # CRITICAL: Ensure model is in eval mode after weight modification
+        model.eval()
+        
+        # Re-create explainer to clear cached hooks/states
+        from src.explainability import ExplainabilityMethods
+        random_explainer = ExplainabilityMethods(model, device)
+        
+        # Compute attributions with random weights using NEW explainer
+        random_attrs = random_explainer.get_all_attributions(input_tensor, target_class, methods)
         
         # Compute correlation between original and random attributions
         for method in methods:
@@ -506,6 +614,9 @@ def sanity_check_explanations(
         for name, param in model.named_parameters():
             if name in original_state:
                 param.copy_(original_state[name])
+    
+    # Restore model to original training/eval mode
+    model.train(original_training)
     
     return correlation_changes
 
@@ -654,6 +765,11 @@ def cascade_randomization_test(
         methods = config.EXPLAINABILITY_METHODS
     
     device = next(model.parameters()).device
+    original_training = model.training
+
+    # Ensure input is on the correct device
+    if input_tensor.device != device:
+        input_tensor = input_tensor.to(device)
     
     # Save original state
     original_state = {name: param.clone() for name, param in model.named_parameters()}
@@ -711,7 +827,14 @@ def cascade_randomization_test(
             
             # Compute attributions with partially randomized model
             try:
-                random_attrs = explainer.get_all_attributions(input_tensor, target_class, methods)
+                # CRITICAL: Ensure model is in eval mode after weight modification
+                model.eval()
+                
+                # Re-create explainer to clear cached hooks/states
+                from src.explainability import ExplainabilityMethods
+                random_explainer = ExplainabilityMethods(model, device)
+                
+                random_attrs = random_explainer.get_all_attributions(input_tensor, target_class, methods)
                 
                 # Compute correlation for each method
                 for method in methods:
@@ -734,5 +857,8 @@ def cascade_randomization_test(
         for name, param in model.named_parameters():
             if name in original_state:
                 param.copy_(original_state[name])
+    
+    # Restore model to original training/eval mode
+    model.train(original_training)
     
     return results
