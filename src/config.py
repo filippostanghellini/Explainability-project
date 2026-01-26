@@ -38,11 +38,11 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 
 # Model training settings
 NUM_CLASSES = 200
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 NUM_EPOCHS = 30
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 1e-4
-NUM_WORKERS = 4 # Set to 8 with L40s
+NUM_WORKERS = 8 # Set to 8 with L40s
 
 # Explainability settings
 EXPLAINABILITY_METHODS = [
@@ -51,14 +51,13 @@ EXPLAINABILITY_METHODS = [
     'saliency',
     'lime', 
     'kernel_shap',
-    'gradient_shap',
     'occlusion',
     'integrated_gradients_noise',
     'saliency_noise'
 ]
-N_SAMPLES_LIME = 200 # Number of samples for LIME TODO: test 2000 using GPU 
-N_SAMPLES_SHAP = 200  # Number of samples for Kernel SHAP and Gradient SHAP TODO: test 2000 using GPU
-NT_SAMPLES = 10  # Number of samples for NoiseTunnel (SmoothGrad)
+N_SAMPLES_LIME = 500 # Number of samples for LIME TODO: test 2000 using GPU 
+N_SAMPLES_SHAP = 500  # Number of samples for Kernel SHAP and Gradient SHAP TODO: test 2000 using GPU
+NT_SAMPLES = 5 # Number of samples for NoiseTunnel (SmoothGrad)
 
 # Part annotation settings (15 parts in CUB-200)
 NUM_PARTS = 15

@@ -62,7 +62,7 @@ class ExplainabilityMethods:
         self,
         input_tensor: torch.Tensor,
         target_class: int,
-        n_steps: int = 50,
+        n_steps: int = 25,
         baselines: Optional[torch.Tensor] = None
     ) -> np.ndarray:
         """
@@ -353,7 +353,7 @@ class ExplainabilityMethods:
         self,
         input_tensor: torch.Tensor,
         target_class: int,
-        n_steps: int = 50,
+        n_steps: int = 25,
         baselines: Optional[torch.Tensor] = None,
         nt_type: str = 'smoothgrad',
         nt_samples: int = 10,   
