@@ -1,3 +1,8 @@
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![Scikit-Learn](https://img.shields.io/badge/scikit--learn-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
+[![Captum](https://img.shields.io/badge/Captum-XAI-orange?style=for-the-badge&logo=pytorch&logoColor=white)](https://captum.ai/)
+
 # Explainability Methods Comparison on CUB-200-2011
 
 This project compares different explainability approaches from the **Captum** library for a CNN classifier trained on the **CUB-200-2011** bird species dataset. The focus is on measuring **explanation plausibility** by comparing model explanations with ground-truth part annotations.
@@ -5,7 +10,7 @@ This project compares different explainability approaches from the **Captum** li
 ## Project Goals
 
 1. **Train a CNN classifier** on CUB-200-2011 (200 bird species)
-2. **Apply multiple explainability methods**: Integrated Gradients, Saliency, Input×Gradient, LIME, Kernel SHAP, Gradient SHAP, Occlusion, Noise Tunnel (wrapper)
+2. **Apply multiple explainability methods**: Integrated Gradients, Saliency, Input×Gradient, LIME, Kernel SHAP, Occlusion, Noise Tunnel (wrapper)
 3. **Evaluate explanation quality** (plausibility) using ground-truth part annotations
 4. **Analyze**: Are the results due to the model or to the explanation method?
 
@@ -18,19 +23,21 @@ Explainability-project/
 │   ├── config.py              # Configuration and hyperparameters
 │   ├── data_loader.py         # Dataset loading and preprocessing
 │   ├── model.py               # CNN model definition (ResNet-50)
-│   ├── explainability.py      # Explainability methods (Captum wrapper)
+│   ├── explainability.py      # Explainability methods (Captum)
 │   ├── evaluation.py          # Plausibility metrics
 │   └── visualizations_utils.py # Visualization utilities
 ├── train.py                   # Training script
 ├── model_evaluation.py        # Model evaluation script
 ├── explainability_analysis.ipynb  # Interactive Jupyter notebook
-├── EXPLAINABILITY.md          # Detailed explainability documentation
 ├── requirements.txt           # Python dependencies
 ├── README.md                  # This file
 ├── models/                    # Saved model checkpoints
 ├── results/                   # Evaluation results and metrics
 ├── visualizations/            # Generated visualizations
-└── CUB_200_2011/             # Dataset directory
+├──CUB_200_2011/
+  └── CUB_200_2011/
+      └── ...
+
 ```
 
 ## Quick Start
@@ -61,7 +68,7 @@ Download from: https://www.vision.caltech.edu/datasets/cub_200_2011
 
 ### 4. Download Pre-trained Model
 
-The trained ResNet-50 model is available via **Git LFS** (Large File Storage). To download it:
+The trained ResNet-50 model trained by us is available via **Git LFS** (Large File Storage). To download it:
 
 ```bash
 # Install Git LFS if not already installed
@@ -110,7 +117,7 @@ This script evaluates the trained model on the test set and generates:
 
 Results are saved in the `results/` directory.
 
-### 7. Interactive Analysis
+### 7. Interactive Analysis (MAIN NOTEBOOK)
 
 Open the Jupyter notebook for interactive exploration:
 
@@ -125,4 +132,9 @@ jupyter notebook explainability_analysis.ipynb
 
 ### Papers:
 
+## Authors
 
+This project was developed by:
+
+- [@filippostanghellini](https://github.com/filippostanghellini)
+- [@samueleviola](https://github.com/samueleviola)
