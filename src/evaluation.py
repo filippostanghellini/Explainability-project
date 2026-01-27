@@ -28,7 +28,7 @@ def normalize_attribution(attr_map: np.ndarray) -> np.ndarray:
 def compute_pointing_game(
     attribution_map: np.ndarray,
     part_mask: np.ndarray,
-    top_k_percent: float = 5.0
+    top_k_percent: float = 5.0 # Not used in classic pointing game
 ) -> float:
     """
     Compute Pointing Game metric.

@@ -241,7 +241,7 @@ def main():
         raise FileNotFoundError(f"Modello non trovato in: {model_path}")
     
     # Carica il modello
-    model = load_model(str(model_path), device)
+    model = load_model(str(model_path), num_classes=NUM_CLASSES, device=device)
     
     # Prepara le trasformazioni per il test set
     test_transform = transforms.Compose([

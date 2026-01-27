@@ -541,7 +541,8 @@ class ExplainabilityMethods:
         
         return attr_np
 
-    def _create_segmentation_mask(self, input_tensor: torch.Tensor, n_segments: int) -> torch.Tensor:
+    #TODO: original function
+    # def _create_segmentation_mask(self, input_tensor: torch.Tensor, n_segments: int) -> torch.Tensor:
         """
         Create a segmentation mask using SLIC superpixels.
         
@@ -567,3 +568,31 @@ class ExplainabilityMethods:
         # Ritorna come tensore Long (intero) sul device corretto
         return torch.from_numpy(segments).long().to(self.device)
 
+    def _create_segmentation_mask(self, input_tensor: torch.Tensor, n_segments: int) -> torch.Tensor:
+        """
+        Create a segmentation mask using SLIC superpixels.
+        
+        Uses SLIC (Simple Linear Iterative Clustering) instead of a simple grid
+        for more semantically meaningful superpixel segmentation.
+        """
+        # Porta su CPU e converti in numpy
+        img_np = input_tensor.cpu().detach().numpy()
+        
+        # Gestione dimensioni: se c'è la dimensione batch (1, C, H, W), rimuovila
+        if img_np.ndim == 4:
+            img_np = img_np[0]  # Diventa (C, H, W)
+            
+        # Trasponi da (C, H, W) a (H, W, C) per scikit-image
+        if img_np.shape[0] == 3:
+            img_np = np.transpose(img_np, (1, 2, 0))
+        
+        # DE-NORMALIZZA per SLIC: riporta i valori in [0, 1]
+        mean = np.array([0.485, 0.456, 0.406])
+        std = np.array([0.229, 0.224, 0.225])
+        img_denorm = img_np * std + mean
+        img_denorm = np.clip(img_denorm, 0, 1)  # Assicura range valido
+            
+        # Calcola segmenti con SLIC su immagine de-normalizzata
+        segments = slic(img_denorm, n_segments=n_segments, compactness=10, sigma=1, start_label=0)
+        
+        return torch.from_numpy(segments).long().to(self.device)
