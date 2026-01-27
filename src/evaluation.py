@@ -597,8 +597,8 @@ def sanity_check_explanations(
         # Compute correlation between original and random attributions
         for method in methods:
             if original_attrs[method] is not None and random_attrs[method] is not None:
-                orig_flat = original_attrs[method].flatten()
-                rand_flat = random_attrs[method].flatten()
+                orig_flat = np.abs(original_attrs[method]).flatten()
+                rand_flat = np.abs(random_attrs[method]).flatten()
                 
                 # Compute Spearman correlation
                 try:
@@ -839,8 +839,8 @@ def cascade_randomization_test(
                 # Compute correlation for each method
                 for method in methods:
                     if original_attrs[method] is not None and random_attrs[method] is not None:
-                        orig_flat = original_attrs[method].flatten()
-                        rand_flat = random_attrs[method].flatten()
+                        orig_flat = np.abs(original_attrs[method]).flatten()
+                        rand_flat = np.abs(random_attrs[method]).flatten()
                         
                         try:
                             corr, _ = spearmanr(orig_flat, rand_flat)
