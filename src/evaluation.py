@@ -6,7 +6,7 @@ Compares model explanations with ground-truth part annotations.
 import numpy as np
 import torch
 from typing import Dict, List, Tuple, Optional
-from scipy.stats import spearmanr, pearsonr
+from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score, average_precision_score
 import pandas as pd
 from tqdm import tqdm
@@ -28,7 +28,7 @@ def normalize_attribution(attr_map: np.ndarray) -> np.ndarray:
 def compute_pointing_game(
     attribution_map: np.ndarray,
     part_mask: np.ndarray,
-    top_k_percent: float = 5.0
+    top_k_percent: float = 5.0 # Not used in classic pointing game
 ) -> float:
     """
     Compute Pointing Game metric.
@@ -555,9 +555,17 @@ def sanity_check_explanations(
         methods = config.EXPLAINABILITY_METHODS
     
     device = next(model.parameters()).device
-    original_state = {name: param.clone() for name, param in model.named_parameters()}
-    
-    # Get original attributions
+    original_state = {name: param.detach().clone() for name, param in model.named_parameters()}
+    original_training = model.training
+
+    # Ensure input is on the correct device
+    if input_tensor.device != device:
+        input_tensor = input_tensor.to(device)
+
+    # Ensure model is in eval mode
+    model.eval()
+
+    # Get original attributions (use explainer as provided)
     original_attrs = explainer.get_all_attributions(input_tensor, target_class, methods)
     
     correlation_changes = {method: [] for method in methods}
@@ -567,20 +575,30 @@ def sanity_check_explanations(
     for seed in tqdm(range(n_random_seeds)):
         # Randomize model weights
         torch.manual_seed(seed)
-        for param in model.parameters():
-            if len(param.shape) > 1:  # Skip biases
-                torch.nn.init.kaiming_uniform_(param, a=0, mode='fan_in', nonlinearity='relu')
-            else:
-                torch.nn.init.uniform_(param, 0, 1)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        with torch.no_grad():
+            for param in model.parameters():
+                if len(param.shape) > 1:  # Skip biases
+                    torch.nn.init.kaiming_uniform_(param, a=0, mode='fan_in', nonlinearity='relu')
+                else:
+                    torch.nn.init.uniform_(param, 0, 1)
         
-        # Compute attributions with random weights
-        random_attrs = explainer.get_all_attributions(input_tensor, target_class, methods)
+        # CRITICAL: Ensure model is in eval mode after weight modification
+        model.eval()
+        
+        # Re-create explainer to clear cached hooks/states
+        from src.explainability import ExplainabilityMethods
+        random_explainer = ExplainabilityMethods(model, device)
+        
+        # Compute attributions with random weights using NEW explainer
+        random_attrs = random_explainer.get_all_attributions(input_tensor, target_class, methods)
         
         # Compute correlation between original and random attributions
         for method in methods:
             if original_attrs[method] is not None and random_attrs[method] is not None:
-                orig_flat = original_attrs[method].flatten()
-                rand_flat = random_attrs[method].flatten()
+                orig_flat = np.abs(original_attrs[method]).flatten()
+                rand_flat = np.abs(random_attrs[method]).flatten()
                 
                 # Compute Spearman correlation
                 try:
@@ -596,6 +614,9 @@ def sanity_check_explanations(
         for name, param in model.named_parameters():
             if name in original_state:
                 param.copy_(original_state[name])
+    
+    # Restore model to original training/eval mode
+    model.train(original_training)
     
     return correlation_changes
 
@@ -711,59 +732,133 @@ class SanityCheckEvaluator:
         return pd.DataFrame(rows)
 
 
-if __name__ == "__main__":
-    # Test metrics
-    print("Testing plausibility metrics...")
+def cascade_randomization_test(
+    model: torch.nn.Module,
+    explainer,
+    input_tensor: torch.Tensor,
+    target_class: int,
+    methods: List[str] = None,
+    n_random_seeds: int = 3
+) -> Dict[str, Dict[str, List[float]]]:
+    """
+    Cascade randomization test (Adebayo et al., 2018).
     
-    # Create dummy data
-    np.random.seed(42)
+    Progressively randomizes layers from top (logit) to bottom (input),
+    measuring how explanations change. A faithful method should show
+    decreasing correlation as higher layers are randomized.
     
-    # Attribution map - center has high values
-    attr_map = np.zeros((224, 224))
-    attr_map[80:140, 80:140] = np.random.rand(60, 60)
+    This tests whether the explanation method is sensitive to the learned
+    parameters at different depths of the network.
     
-    # Ground truth mask - overlaps with attribution
-    gt_mask = np.zeros((224, 224))
-    gt_mask[100:160, 100:160] = 1.0
-    
-    # Test all metrics
-    metrics = compute_all_metrics(attr_map, gt_mask)
-    
-    print("\nMetrics:")
-    for name, value in metrics.items():
-        print(f"  {name}: {value:.4f}")
-    
-    # Test with perfect overlap
-    print("\nPerfect overlap case:")
-    perfect_attr = gt_mask.copy()
-    perfect_metrics = compute_all_metrics(perfect_attr, gt_mask)
-    for name, value in perfect_metrics.items():
-        print(f"  {name}: {value:.4f}")
-    
-    # Test sanity check
-    print("Testing sanity check...")
-    
-    # Dummy model and explainer (replace with actual instances)
-    class DummyModel(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.conv = torch.nn.Conv2d(3, 3, 3, padding=1)
+    Args:
+        model: Trained PyTorch model (ResNet-50)
+        explainer: ExplainabilityMethods instance
+        input_tensor: Input image tensor (1, C, H, W)
+        target_class: Target class for attribution
+        methods: List of explanation methods to test
+        n_random_seeds: Number of random seeds per layer configuration
         
-        def forward(self, x):
-            return self.conv(x)
+    Returns:
+        Dictionary: {method: {layer_name: [correlations]}}
+    """
+    if methods is None:
+        methods = config.EXPLAINABILITY_METHODS
     
-    class DummyExplainer:
-        def get_all_attributions(self, input_tensor, target_class, methods):
-            # Dummy implementation: random attributions
-            return {method: np.random.rand(*input_tensor.shape[2:]) for method in methods}
+    device = next(model.parameters()).device
+    original_training = model.training
+
+    # Ensure input is on the correct device
+    if input_tensor.device != device:
+        input_tensor = input_tensor.to(device)
     
-    model = DummyModel()
-    explainer = DummyExplainer()
+    # Save original state
+    original_state = {name: param.clone() for name, param in model.named_parameters()}
     
-    # Dummy input tensor (1 image, 3 channels, 224x224)
-    input_tensor = torch.rand(1, 3, 224, 224)
-    target_class = 1  # Arbitrary class
+    # Get original attributions with fully trained model
+    print("Computing attributions with original trained model...")
+    original_attrs = explainer.get_all_attributions(input_tensor, target_class, methods)
     
-    # Run sanity check
-    sanity_results = sanity_check_explanations(model, explainer, input_tensor, target_class)
-    print_sanity_check_results(sanity_results)
+    # Define layer groups for ResNet-50 (from logit to input)
+    # We'll randomize progressively: fc -> layer4 -> layer3 -> layer2 -> layer1 -> conv1
+    layer_groups = [
+        ('logit', ['fc']),
+        ('layer4', ['layer4']),
+        ('layer3', ['layer3']),
+        ('layer2', ['layer2']),
+        ('layer1', ['layer1']),
+        ('conv1', ['conv1', 'bn1'])
+    ]
+    
+    # Store results: {method: {layer_stage: [correlations]}}
+    results = {method: {} for method in methods}
+    
+    # Cumulative randomization: each stage includes previous stages
+    randomized_layers = []
+    
+    for stage_name, layer_names in layer_groups:
+        randomized_layers.extend(layer_names)
+        
+        print(f"\nRandomizing up to {stage_name} (layers: {', '.join(randomized_layers)})")
+        
+        # Initialize correlation storage for this stage
+        for method in methods:
+            results[method][stage_name] = []
+        
+        # Run multiple seeds for robustness
+        for seed in range(n_random_seeds):
+            # Restore original weights
+            with torch.no_grad():
+                for name, param in model.named_parameters():
+                    if name in original_state:
+                        param.copy_(original_state[name])
+            
+            # Randomize specific layers
+            torch.manual_seed(seed)
+            with torch.no_grad():
+                for name, param in model.named_parameters():
+                    # Check if this parameter belongs to a layer we want to randomize
+                    should_randomize = any(layer in name for layer in randomized_layers)
+                    
+                    if should_randomize:
+                        if len(param.shape) > 1:  # Weights
+                            torch.nn.init.kaiming_uniform_(param, a=0, mode='fan_in', nonlinearity='relu')
+                        else:  # Biases
+                            torch.nn.init.uniform_(param, 0, 1)
+            
+            # Compute attributions with partially randomized model
+            try:
+                # CRITICAL: Ensure model is in eval mode after weight modification
+                model.eval()
+                
+                # Re-create explainer to clear cached hooks/states
+                from src.explainability import ExplainabilityMethods
+                random_explainer = ExplainabilityMethods(model, device)
+                
+                random_attrs = random_explainer.get_all_attributions(input_tensor, target_class, methods)
+                
+                # Compute correlation for each method
+                for method in methods:
+                    if original_attrs[method] is not None and random_attrs[method] is not None:
+                        orig_flat = np.abs(original_attrs[method]).flatten()
+                        rand_flat = np.abs(random_attrs[method]).flatten()
+                        
+                        try:
+                            corr, _ = spearmanr(orig_flat, rand_flat)
+                            corr = corr if not np.isnan(corr) else 0.0
+                        except:
+                            corr = 0.0
+                        
+                        results[method][stage_name].append(corr)
+            except Exception as e:
+                print(f"  Error at {stage_name}, seed {seed}: {e}")
+    
+    # Restore original weights
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            if name in original_state:
+                param.copy_(original_state[name])
+    
+    # Restore model to original training/eval mode
+    model.train(original_training)
+    
+    return results

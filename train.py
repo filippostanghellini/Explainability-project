@@ -126,7 +126,6 @@ def train(
     batch_size: int = 32,
     learning_rate: float = 0.001,
     weight_decay: float = 1e-4,
-    model_type: str = 'resnet50',
     resume_from: str = None
 ):
     """Main training function."""
@@ -149,7 +148,7 @@ def train(
     
     # Model
     print("\nCreating model...")
-    model = create_model(model_type=model_type, num_classes=config.NUM_CLASSES, pretrained=True, device=device)
+    model = create_model(num_classes=config.NUM_CLASSES, pretrained=True, device=device)
     
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -209,7 +208,7 @@ def train(
             best_acc = val_acc
             save_model(
                 model,
-                config.MODELS_DIR / f"best_{model_type}_cub200.pth",
+                config.MODELS_DIR / "best_resnet50_cub200.pth",
                 optimizer=optimizer,
                 epoch=epoch + 1,
                 accuracy=val_acc
@@ -219,7 +218,7 @@ def train(
         if (epoch + 1) % 5 == 0:
             save_model(
                 model,
-                config.MODELS_DIR / f"checkpoint_{model_type}_epoch{epoch + 1}.pth",
+                config.MODELS_DIR / f"checkpoint_resnet50_epoch{epoch + 1}.pth",
                 optimizer=optimizer,
                 epoch=epoch + 1,
                 accuracy=val_acc
@@ -235,7 +234,7 @@ def train(
     # Save final model
     save_model(
         model,
-        config.MODELS_DIR / f"final_{model_type}_cub200.pth",
+        config.MODELS_DIR / "final_resnet50_cub200.pth",
         optimizer=optimizer,
         epoch=num_epochs,
         accuracy=val_acc
@@ -243,7 +242,7 @@ def train(
     
     return model, history
 
-# INFO: python train.py --epochs 50 --batch_size 64 --lr 0.0005 --model resnet50
+# INFO: python train.py --epochs 50 --batch_size 64 --lr 0.0005
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train CUB-200-2011 classifier')
@@ -251,7 +250,6 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay')
-    parser.add_argument('--model', type=str, default='resnet50', choices=['resnet50', 'vgg16'])
     parser.add_argument('--resume', type=str, default=None, help='Resume from checkpoint')
     
     args = parser.parse_args()
@@ -261,6 +259,5 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         learning_rate=args.lr,
         weight_decay=args.weight_decay,
-        model_type=args.model,
         resume_from=args.resume
     )
