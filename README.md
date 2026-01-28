@@ -128,12 +128,33 @@ Open the Jupyter notebook for interactive exploration:
 jupyter notebook explainability_analysis.ipynb
 ```
 
+## Technical Details
+
+### Hardware
+The training and intensive explainability computations were performed using:
+* **GPU**: NVIDIA L4 
+* **Cloud Platform**: [Lightning.ai](https://lightning.ai/)
+
 ## References
 
 - **Captum**: https://captum.ai - PyTorch model interpretability library
 - **CUB-200-2011**: https://www.vision.caltech.edu/datasets/cub_200_2011 - Fine-grained bird classification dataset
 
 ### Papers:
+
+[1] J. Adebayo, J. Gilmer, M. Muelly, I. Goodfellow, M. Hardt, and B. Kim, "Sanity Checks for Saliency Maps," in Proc. Adv. Neural Inf. Process. Syst. (NeurIPS), 2018.
+
+[2] S. M. Lundberg and S.-I. Lee, "A Unified Approach to Interpreting Model Predictions," in Proc. Adv. Neural Inf. Process. Syst. (NeurIPS), 2017.
+
+[3] M. T. Ribeiro, S. Singh, and C. Guestrin, "'Why Should I Trust You?': Explaining the Predictions of Any Classifier," in Proc. 22nd ACM SIGKDD Int. Conf. Knowl. Discovery and Data Mining (KDD), 2016.
+
+[4] K. Simonyan, A. Vedaldi, and A. Zisserman, "Deep Inside Convolutional Networks: Visualising Image Classification Models and Saliency Maps," in Proc. ICLR Workshop, 2014.
+
+[5] M. Sundararajan, A. Taly, and Q. Yan, "Axiomatic Attribution for Deep Networks," in Proc. 34th Int. Conf. Machine Learning (ICML), 2017.
+
+[6] C. Wah, S. Branson, P. Welinder, P. Perona, and S. Belongie, "The Caltech-UCSD Birds-200-2011 Dataset," California Institute of Technology, Tech. Rep. CNS-TR-2011-001, 2011.
+
+[7] J. Wei et al., "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models," in Proc. Adv. Neural Inf. Process. Syst. (NeurIPS), 2022.
 
 ## Authors
 
