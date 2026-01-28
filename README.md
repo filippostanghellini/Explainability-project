@@ -2,6 +2,9 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![Scikit-Learn](https://img.shields.io/badge/scikit--learn-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
 [![Captum](https://img.shields.io/badge/Captum-XAI-orange?style=for-the-badge&logo=pytorch&logoColor=white)](https://captum.ai/)
+<a target="_blank" href="https://lightning.ai/">
+  <img src="https://pl-bolts-doc-images.s3.us-east-2.amazonaws.com/app-2/studio-badge.svg" alt="Open in Studio" />
+</a>
 
 # Explainability Methods Comparison on CUB-200-2011
 
